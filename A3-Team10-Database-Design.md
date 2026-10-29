@@ -1,91 +1,104 @@
-# Assignment #3: Database Design
+# Assignment #3: Data and Query Design
 
-## Project
+## Submission Information
 
-Maintenance (Team 10)
-
-## Contributors
-
-- Person A: Backend, database, and API owner
-- Person B: Document assembly and final review
+| Item | Value |
+|---|---|
+| Project | Maintenance |
+| Team | Team 10 |
+| Database | Supabase PostgreSQL |
+| Backend | Next.js App Router API |
+| Prepared | 21 September 2026 |
 
 ## 1. Database Choice and Explanation
 
-The project uses Supabase PostgreSQL as its database. PostgreSQL is suitable because the maintenance platform has related entities, foreign keys, status rules, audit history, and transaction requirements. Supabase provides a hosted PostgreSQL database, SQL tools, authentication integration, and a dashboard for inspecting data.
+The Maintenance project uses **Supabase PostgreSQL**. The project data is relational: a work order belongs to one location and one category, can have an assignment, and has an ordered status history. PostgreSQL supports these relationships with primary keys, foreign keys, unique constraints, check constraints, indexes, transactions, triggers, and row-level security (RLS).
 
-The team will use the Supabase dashboard or Supabase CLI to create and inspect the schema. Database changes must be stored in a versioned SQL migration file before they are applied to the remote database. The team will verify the remote tables, constraints, indexes, and relationships after deployment.
+Supabase was selected because it provides:
 
-The Next.js API routes will authenticate the request, validate the input, apply the work-order business rules, and read or write data in Supabase PostgreSQL. Protected routes must enforce authorization on the server and must not rely only on client-side checks.
+- a hosted PostgreSQL database;
+- Supabase Auth for reporter and staff identities;
+- SQL migrations and a CLI for repeatable remote deployment;
+- a dashboard for inspecting tables, constraints, policies, and data; and
+- direct integration with the Next.js backend through `@supabase/supabase-js`.
+
+The Next.js API authenticates each request, validates input, and sends queries to Supabase. Database functions handle multi-step lifecycle operations so that a work-order update and its audit-history entry succeed or fail together.
 
 ## 2. Database Schema
 
-### Location
+The SQL implementation is stored in `backend/supabase/migrations`. The application uses five core tables in the `public` schema.
 
-| Column | Type | Rules |
+### 2.1 Location (`public.locations`)
+
+| Column | PostgreSQL type | Rules |
 |---|---|---|
-| `id` | UUID | Primary key |
-| `building` | VARCHAR | Not null |
-| `floor_room` | VARCHAR | Not null |
-| `created_at` | TIMESTAMP | Not null, default current timestamp |
+| `id` | `uuid` | Primary key; defaults to `gen_random_uuid()` |
+| `building` | `varchar(150)` | Not null |
+| `floor_room` | `varchar(150)` | Not null |
+| `created_at` | `timestamptz` | Not null; defaults to `now()` |
 
-### Category
+### 2.2 Category (`public.categories`)
 
-| Column | Type | Rules |
+| Column | PostgreSQL type | Rules |
 |---|---|---|
-| `id` | UUID | Primary key |
-| `name` | VARCHAR | Not null |
-| `sla_hours` | INTEGER | Not null |
-| `created_at` | TIMESTAMP | Not null, default current timestamp |
+| `id` | `uuid` | Primary key; defaults to `gen_random_uuid()` |
+| `name` | `varchar(100)` | Not null; unique |
+| `sla_hours` | `integer` | Not null; must be greater than zero |
+| `created_at` | `timestamptz` | Not null; defaults to `now()` |
 
-### WorkOrder
+### 2.3 Work Order (`public.work_orders`)
 
-| Column | Type | Rules |
+| Column | PostgreSQL type | Rules |
 |---|---|---|
-| `id` | UUID | Primary key |
-| `reporter_id` | UUID | Not null, foreign key to the authenticated user identity |
-| `location_id` | UUID | Not null, foreign key to `Location.id` |
-| `category_id` | UUID | Not null, foreign key to `Category.id` |
-| `title` | VARCHAR | Not null |
-| `description` | TEXT | Not null |
-| `resolution_notes` | TEXT | Nullable until resolution; required before `RESOLVED` |
-| `status` | Work-order status | Not null, default `OPEN` |
-| `created_at` | TIMESTAMP | Not null, default current timestamp |
-| `updated_at` | TIMESTAMP | Not null, default current timestamp |
-| `archived_at` | TIMESTAMP | Nullable; used for soft deletion |
+| `id` | `uuid` | Primary key; defaults to `gen_random_uuid()` |
+| `reporter_id` | `uuid` | Not null; foreign key to `auth.users(id)` |
+| `location_id` | `uuid` | Not null; foreign key to `locations(id)` |
+| `category_id` | `uuid` | Not null; foreign key to `categories(id)` |
+| `title` | `varchar(200)` | Not null |
+| `description` | `text` | Not null |
+| `resolution_notes` | `text` | Nullable until resolution; non-empty when status becomes `RESOLVED` |
+| `status` | `work_order_status` | Not null; defaults to `OPEN` |
+| `created_at` | `timestamptz` | Not null; defaults to `now()` |
+| `updated_at` | `timestamptz` | Not null; maintained by a trigger |
+| `archived_at` | `timestamptz` | Nullable; used for soft deletion |
 
-Allowed work-order statuses are `OPEN`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, and `CLOSED`.
+The `work_order_status` enum allows only:
 
-### Assignment
+`OPEN` -> `ASSIGNED` -> `IN_PROGRESS` -> `RESOLVED` -> `CLOSED`
 
-| Column | Type | Rules |
+### 2.4 Assignment (`public.assignments`)
+
+| Column | PostgreSQL type | Rules |
 |---|---|---|
-| `id` | UUID | Primary key |
-| `work_order_id` | UUID | Not null, foreign key to `WorkOrder.id` |
-| `staff_id` | UUID | Not null, foreign key to the authenticated staff identity |
-| `assigned_at` | TIMESTAMP | Not null, default current timestamp |
+| `id` | `uuid` | Primary key; defaults to `gen_random_uuid()` |
+| `work_order_id` | `uuid` | Not null; foreign key to `work_orders(id)` with cascade delete |
+| `staff_id` | `uuid` | Not null; foreign key to `auth.users(id)` |
+| `assigned_at` | `timestamptz` | Not null; defaults to `now()` |
 
-### StatusHistory
+A unique index on `work_order_id` prevents more than one assignment row for the same work order.
 
-| Column | Type | Rules |
+### 2.5 Status History (`public.status_history`)
+
+| Column | PostgreSQL type | Rules |
 |---|---|---|
-| `id` | UUID | Primary key |
-| `work_order_id` | UUID | Not null, foreign key to `WorkOrder.id` |
-| `changed_by` | UUID | Not null, foreign key to the authenticated user identity |
-| `from_status` | Work-order status | Nullable for the initial status entry |
-| `to_status` | Work-order status | Not null |
-| `note` | TEXT | Nullable |
-| `timestamp` | TIMESTAMP | Not null, default current timestamp |
+| `id` | `uuid` | Primary key; defaults to `gen_random_uuid()` |
+| `work_order_id` | `uuid` | Not null; foreign key to `work_orders(id)` with cascade delete |
+| `changed_by` | `uuid` | Not null; foreign key to `auth.users(id)` |
+| `from_status` | `work_order_status` | Nullable only for the initial `OPEN` entry |
+| `to_status` | `work_order_status` | Not null |
+| `note` | `text` | Nullable |
+| `timestamp` | `timestamptz` | Not null; defaults to `now()` |
 
-### Integrity Rules
+### 2.6 Integrity and Query Design
 
-- Required fields are not nullable.
-- All entity relationships use foreign keys.
-- Status changes must follow the valid lifecycle defined in the PRD.
-- A work order cannot become `RESOLVED` without an assigned technician and non-empty resolution notes.
-- A work order cannot become `CLOSED` unless its current status is `RESOLVED`.
-- Assignment and status-history writes should occur in the same transaction as the related work-order update.
-- Archiving sets `archived_at`; it does not physically delete the work order or its history.
-- Duplicate active assignments for the same work order must be prevented by the database or transaction logic.
+- Foreign keys preserve valid relationships between work orders, locations, categories, assignments, history records, and authenticated users.
+- A trigger rejects skipped or reversed status transitions.
+- Resolution requires an existing assignment and non-empty resolution notes.
+- Closing is allowed only from `RESOLVED`.
+- Archiving updates `archived_at` instead of deleting the record and its history.
+- Lifecycle database functions use `SECURITY INVOKER`, row locking, and one transaction for the work-order update and history insert.
+- Indexes support common filters and lookups: `work_orders(status)`, `work_orders(location_id)`, and `status_history(work_order_id, timestamp)`.
+- RLS is enabled on all five public tables. Reporters can read their own work orders, while staff can perform protected lifecycle operations.
 
 ## 3. Entity-Relationship Diagram
 
@@ -93,21 +106,21 @@ Allowed work-order statuses are `OPEN`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, a
 erDiagram
     LOCATION ||--o{ WORK_ORDER : contains
     CATEGORY ||--o{ WORK_ORDER : classifies
-    WORK_ORDER ||--o{ ASSIGNMENT : receives
+    WORK_ORDER ||--o| ASSIGNMENT : receives
     WORK_ORDER ||--o{ STATUS_HISTORY : records
 
     LOCATION {
         uuid id PK
         varchar building
         varchar floor_room
-        timestamp created_at
+        timestamptz created_at
     }
 
     CATEGORY {
         uuid id PK
-        varchar name
+        varchar name UK
         integer sla_hours
-        timestamp created_at
+        timestamptz created_at
     }
 
     WORK_ORDER {
@@ -118,295 +131,362 @@ erDiagram
         varchar title
         text description
         text resolution_notes
-        status status
-        timestamp created_at
-        timestamp updated_at
-        timestamp archived_at
+        work_order_status status
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz archived_at
     }
 
     ASSIGNMENT {
         uuid id PK
-        uuid work_order_id FK
+        uuid work_order_id FK_UK
         uuid staff_id FK
-        timestamp assigned_at
+        timestamptz assigned_at
     }
 
     STATUS_HISTORY {
         uuid id PK
         uuid work_order_id FK
         uuid changed_by FK
-        status from_status
-        status to_status
+        work_order_status from_status
+        work_order_status to_status
         text note
-        timestamp timestamp
+        timestamptz timestamp
     }
 ```
 
-`reporter_id`, `staff_id`, and `changed_by` refer to authenticated Supabase Auth user identities. The diagram shows the application-owned relationships; the Auth user table is managed by Supabase Auth.
+`reporter_id`, `staff_id`, and `changed_by` reference identities managed by Supabase Auth. The diagram focuses on the application-owned tables.
 
-## 4. Migration and Remote Database
+## 4. Migration and Remote Deployment
 
-### Migration file
+### 4.1 Versioned Migration Files
 
-- Migration file: `supabase/migrations/001_initial_schema.sql`
-- API migration file: `supabase/migrations/002_api_policies_and_lifecycle.sql`
-- Atomic lifecycle migration file: `supabase/migrations/003_atomic_create_and_start.sql`
-- API test data migration file: `supabase/migrations/004_seed_api_test_data.sql`
-- API test UUID correction migration file: `supabase/migrations/005_fix_api_test_uuid_values.sql`
-- Migration date: `2026-09-20`
-- Tool used: Supabase CLI against the linked hosted project
-- Migration command: `npx supabase db push --linked`
-- Seed command: `npx supabase db query --linked --file .\supabase\seed.sql`
-- Execution result: Success; the hosted database reported that it was up to date.
-- CLI migration status: Migrations `001` through `005` match between local and remote.
-- Remote verification: Supabase Table Editor shows `assignments`, `categories`, `locations`, `status_history`, and `work_orders` in the `public` schema.
+| Order | File | Purpose |
+|---|---|---|
+| 1 | `001_initial_schema.sql` | Enum, five core tables, keys, indexes, triggers, and RLS activation |
+| 2 | `002_api_policies_and_lifecycle.sql` | RLS policies plus assign, resolve, and close functions |
+| 3 | `003_atomic_create_and_start.sql` | Atomic create and start-work functions |
+| 4 | `004_seed_api_test_data.sql` | Initial location and category fixtures |
+| 5 | `005_fix_api_test_uuid_values.sql` | RFC-compliant UUID fixtures used by the API console |
 
-### Deployment evidence
+The optional `backend/supabase/seed.sql` file provides repeatable demonstration records for each lifecycle status.
 
-The following verification has been completed:
+### 4.2 Deployment Commands
 
-1. The five tables appear in Supabase Table Editor.
-2. A Table Editor screenshot was captured as deployment evidence.
-3. The remote table names match this document and the ER diagram.
-4. The hosted seed file was executed through the Supabase CLI without using Docker.
+The team ran the commands from `backend/` against the linked hosted Supabase project:
 
-Do not include Supabase keys, passwords, JWTs, or other secrets in this document.
+```powershell
+npx supabase login
+npx supabase link --project-ref <redacted-project-ref>
+npx supabase db push --linked
+npx supabase db query --linked --file .\supabase\seed.sql
+```
 
-## 5. APIs and CRUD Demonstration
+### 4.3 Deployment Result
 
-The API is implemented in `backend/app/api/work-orders` with Next.js App Router route handlers. The externally callable paths therefore include the `/api` prefix. A separate test client is available in `frontend/`. The examples below use redacted UUIDs and tokens; runtime request/response screenshots should be added during testing.
+- Deployment date: 20 September 2026.
+- `supabase db push` completed successfully and reported that the hosted database was up to date.
+- Local migrations `001` through `005` matched the remote migration state.
+- Supabase Table Editor showed `locations`, `categories`, `work_orders`, `assignments`, and `status_history` in the `public` schema.
+- The seed file was executed through the linked Supabase CLI without requiring a local Docker database.
 
-| Operation | Endpoint |
-|---|---|
-| Create | `POST /api/work-orders` |
-| List | `GET /api/work-orders` |
-| Read one | `GET /api/work-orders/{id}` |
-| Update | `PATCH /api/work-orders/{id}` |
-| Assign | `POST /api/work-orders/{id}/assign` |
-| Start work | `POST /api/work-orders/{id}/in-progress` |
-| Resolve | `POST /api/work-orders/{id}/resolve` |
-| Close | `POST /api/work-orders/{id}/close` |
-| Archive | `DELETE /api/work-orders/{id}` |
-| History | `GET /api/work-orders/{id}/history` |
+Project references, database passwords, JWTs, secret keys, and service-role credentials are intentionally excluded from this submission.
 
-For each route, add the method, URL, relevant headers, request body, response status, response body, and an error example where applicable. Use redacted example IDs and tokens.
+## 5. API Design
 
-### API-console verification completed
+The API is implemented with Next.js App Router route handlers under `backend/app/api/work-orders`. The deployed API base URL is:
 
-The frontend API console was used with the hosted Supabase project. A signed-in Reporter account successfully sent `GET /api/work-orders`, and the backend returned `200 OK` with seeded work-order data. The remaining route examples and the complete lifecycle still require individual request/response evidence.
+```text
+https://maintenanceteam10.vercel.app/api
+```
 
-### Authentication Header
+| Operation | Method and endpoint | Access |
+|---|---|---|
+| Create | `POST /work-orders` | Reporter or staff |
+| List | `GET /work-orders` | Authenticated user; RLS filters rows |
+| Read one | `GET /work-orders/{id}` | Authenticated user; RLS filters rows |
+| Update | `PATCH /work-orders/{id}` | Staff |
+| Archive | `DELETE /work-orders/{id}` | Staff |
+| Assign | `POST /work-orders/{id}/assign` | Staff |
+| Start work | `POST /work-orders/{id}/in-progress` | Staff |
+| Resolve | `POST /work-orders/{id}/resolve` | Staff |
+| Close | `POST /work-orders/{id}/close` | Staff |
+| History | `GET /work-orders/{id}/history` | Authenticated user; RLS filters rows |
 
-Protected requests use a Supabase Auth JWT. The token below is intentionally redacted:
+The frontend API console authenticates with Supabase and sends the returned access token to the backend. A hosted `GET /api/work-orders` request was verified with a Reporter account and returned `200 OK` with seeded data. The examples below are sanitized demonstrations of the implemented route contracts; IDs, JWTs, and timestamps are illustrative. For readability, lifecycle responses show the fields most relevant to each operation; the implemented database functions return the complete updated work-order row.
+
+## 6. API Request and Response Examples
+
+### 6.1 Authentication Header
 
 ```http
 Authorization: Bearer <redacted-supabase-jwt>
 Content-Type: application/json
 ```
 
-### Create Work Order
+### 6.2 Create a Work Order
 
 ```http
 POST /api/work-orders
-Authorization: Bearer <redacted-supabase-jwt>
+Authorization: Bearer <redacted-reporter-jwt>
 Content-Type: application/json
 
 {
-    "location_id": "11111111-1111-1111-1111-111111111111",
-    "description": "Water is leaking beside the second-floor laboratory.",
-    "category_id": "22222222-2222-2222-2222-222222222222",
-    "title": "Laboratory water leak"
+  "location_id": "11111111-1111-4111-8111-111111111111",
+  "category_id": "22222222-2222-4222-8222-222222222222",
+  "title": "Laboratory water leak",
+  "description": "Water is leaking beside the second-floor laboratory."
 }
 ```
 
 ```json
 {
-    "id": "33333333-3333-3333-3333-333333333333",
-    "status": "OPEN",
-    "title": "Laboratory water leak",
-    "description": "Water is leaking beside the second-floor laboratory.",
-    "created_at": "2026-09-20T10:00:00Z"
+  "id": "33333333-3333-4333-8333-333333333333",
+  "reporter_id": "<authenticated-user-id>",
+  "location_id": "11111111-1111-4111-8111-111111111111",
+  "category_id": "22222222-2222-4222-8222-222222222222",
+  "title": "Laboratory water leak",
+  "description": "Water is leaking beside the second-floor laboratory.",
+  "resolution_notes": null,
+  "status": "OPEN",
+  "created_at": "2026-09-20T10:00:00Z",
+  "updated_at": "2026-09-20T10:00:00Z",
+  "archived_at": null
 }
 ```
 
-Expected success: `201 Created`. Missing fields should return `400 Bad Request`.
+Expected status: `201 Created`. Invalid or missing fields return `400 Bad Request`.
 
-### List and Read Work Orders
+### 6.3 List and Read Work Orders
 
 ```http
-GET /api/work-orders?status=OPEN&location_id=11111111-1111-1111-1111-111111111111
+GET /api/work-orders?status=OPEN&location_id=11111111-1111-4111-8111-111111111111
 Authorization: Bearer <redacted-supabase-jwt>
 ```
 
 ```json
 {
-    "data": [
-        {
-            "id": "33333333-3333-3333-3333-333333333333",
-            "status": "OPEN",
-            "title": "Laboratory water leak"
-        }
-    ]
+  "data": [
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "title": "Laboratory water leak",
+      "status": "OPEN",
+      "archived_at": null
+    }
+  ]
 }
 ```
 
 ```http
-GET /api/work-orders/33333333-3333-3333-3333-333333333333
+GET /api/work-orders/33333333-3333-4333-8333-333333333333
 Authorization: Bearer <redacted-supabase-jwt>
 ```
 
 ```json
 {
-    "id": "33333333-3333-3333-3333-333333333333",
-    "location_id": "11111111-1111-1111-1111-111111111111",
-    "category_id": "22222222-2222-2222-2222-222222222222",
-    "status": "OPEN",
-    "archived_at": null
+  "id": "33333333-3333-4333-8333-333333333333",
+  "location_id": "11111111-1111-4111-8111-111111111111",
+  "category_id": "22222222-2222-4222-8222-222222222222",
+  "title": "Laboratory water leak",
+  "status": "OPEN",
+  "archived_at": null
 }
 ```
 
-Expected success: `200 OK`. An unknown ID should return `404 Not Found`.
+Expected status: `200 OK`. An inaccessible or unknown ID returns an error response.
 
-### Update Work Order
+### 6.4 Update a Work Order
 
 ```http
-PATCH /api/work-orders/33333333-3333-3333-3333-333333333333
-Authorization: Bearer <redacted-supabase-jwt>
-Content-Type: application/json
-
-{
-    "title": "Urgent laboratory water leak"
-}
-```
-
-```json
-{
-    "id": "33333333-3333-3333-3333-333333333333",
-    "title": "Urgent laboratory water leak",
-    "status": "OPEN",
-    "updated_at": "2026-09-20T10:05:00Z"
-}
-```
-
-Expected success: `200 OK`. Unauthorized or invalid updates should return `401 Unauthorized` or `400 Bad Request`.
-
-### Assign Work Order
-
-```http
-POST /api/work-orders/33333333-3333-3333-3333-333333333333/assign
+PATCH /api/work-orders/33333333-3333-4333-8333-333333333333
 Authorization: Bearer <redacted-staff-jwt>
 Content-Type: application/json
 
 {
-    "staff_id": "44444444-4444-4444-4444-444444444444"
+  "title": "Urgent laboratory water leak"
 }
 ```
 
 ```json
 {
-    "work_order_id": "33333333-3333-3333-3333-333333333333",
-    "staff_id": "44444444-4444-4444-4444-444444444444",
-    "status": "ASSIGNED",
-    "assigned_at": "2026-09-20T10:10:00Z"
+  "id": "33333333-3333-4333-8333-333333333333",
+  "title": "Urgent laboratory water leak",
+  "status": "OPEN",
+  "updated_at": "2026-09-20T10:05:00Z"
 }
 ```
 
-Expected success: `200 OK`. A non-staff user should receive `403 Forbidden`.
+Expected status: `200 OK`. A reporter attempting this staff-only operation receives `403 Forbidden`.
 
-### Resolve Work Order
+### 6.5 Assign the Work Order
 
 ```http
-POST /api/work-orders/33333333-3333-3333-3333-333333333333/resolve
+POST /api/work-orders/33333333-3333-4333-8333-333333333333/assign
 Authorization: Bearer <redacted-staff-jwt>
 Content-Type: application/json
 
 {
-    "resolution_notes": "Replaced the damaged pipe and tested the water supply."
+  "staff_id": "44444444-4444-4444-8444-444444444444"
 }
 ```
 
 ```json
 {
-    "id": "33333333-3333-3333-3333-333333333333",
-    "status": "RESOLVED",
-    "resolution_notes": "Replaced the damaged pipe and tested the water supply."
+  "id": "33333333-3333-4333-8333-333333333333",
+  "status": "ASSIGNED",
+  "updated_at": "2026-09-20T10:10:00Z"
 }
 ```
 
-Expected success: `200 OK`. Missing assignment or resolution notes should return `400 Bad Request`.
+The database function creates the assignment, changes the status, and inserts an `OPEN` to `ASSIGNED` history record in one transaction.
 
-### Close Work Order
+### 6.6 Start Work
 
 ```http
-POST /api/work-orders/33333333-3333-3333-3333-333333333333/close
+POST /api/work-orders/33333333-3333-4333-8333-333333333333/in-progress
 Authorization: Bearer <redacted-staff-jwt>
 ```
 
 ```json
 {
-    "id": "33333333-3333-3333-3333-333333333333",
-    "status": "CLOSED",
-    "closed_at": "2026-09-20T10:30:00Z"
+  "id": "33333333-3333-4333-8333-333333333333",
+  "status": "IN_PROGRESS",
+  "updated_at": "2026-09-20T10:15:00Z"
 }
 ```
 
-Expected success: `200 OK`. Closing a work order that is not `RESOLVED` should return `400 Bad Request`.
+Expected status: `200 OK`. The database rejects this transition unless the current status is `ASSIGNED`.
 
-### Archive Work Order
+### 6.7 Resolve the Work Order
 
 ```http
-DELETE /api/work-orders/33333333-3333-3333-3333-333333333333
+POST /api/work-orders/33333333-3333-4333-8333-333333333333/resolve
+Authorization: Bearer <redacted-staff-jwt>
+Content-Type: application/json
+
+{
+  "resolution_notes": "Replaced the damaged pipe and tested the water supply."
+}
+```
+
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "status": "RESOLVED",
+  "resolution_notes": "Replaced the damaged pipe and tested the water supply.",
+  "updated_at": "2026-09-20T10:25:00Z"
+}
+```
+
+Expected status: `200 OK`. Missing assignment or empty resolution notes are rejected.
+
+### 6.8 Close the Work Order
+
+```http
+POST /api/work-orders/33333333-3333-4333-8333-333333333333/close
 Authorization: Bearer <redacted-staff-jwt>
 ```
 
 ```json
 {
-    "id": "33333333-3333-3333-3333-333333333333",
-    "archived_at": "2026-09-20T10:35:00Z"
+  "id": "33333333-3333-4333-8333-333333333333",
+  "status": "CLOSED",
+  "updated_at": "2026-09-20T10:30:00Z"
 }
 ```
 
-Expected success: `200 OK`. This is a soft delete; the row and its history remain stored.
+Expected status: `200 OK`. Only a `RESOLVED` work order can be closed.
 
-### Status History
+### 6.9 Archive a Work Order
 
 ```http
-GET /api/work-orders/33333333-3333-3333-3333-333333333333/history
+DELETE /api/work-orders/33333333-3333-4333-8333-333333333333
+Authorization: Bearer <redacted-staff-jwt>
+```
+
+```json
+{
+  "id": "33333333-3333-4333-8333-333333333333",
+  "archived_at": "2026-09-20T10:35:00Z"
+}
+```
+
+Expected status: `200 OK`. This operation is a soft delete, so the work-order and history rows remain stored.
+
+### 6.10 Read Status History
+
+```http
+GET /api/work-orders/33333333-3333-4333-8333-333333333333/history
 Authorization: Bearer <redacted-supabase-jwt>
 ```
 
 ```json
 {
-    "data": [
-        {
-            "from_status": "OPEN",
-            "to_status": "ASSIGNED",
-            "note": null,
-            "timestamp": "2026-09-20T10:10:00Z"
-        },
-        {
-            "from_status": "IN_PROGRESS",
-            "to_status": "RESOLVED",
-            "note": "Replaced the damaged pipe and tested the water supply.",
-            "timestamp": "2026-09-20T10:25:00Z"
-        }
-    ]
+  "data": [
+    {
+      "from_status": null,
+      "to_status": "OPEN",
+      "note": null,
+      "timestamp": "2026-09-20T10:00:00Z"
+    },
+    {
+      "from_status": "OPEN",
+      "to_status": "ASSIGNED",
+      "note": null,
+      "timestamp": "2026-09-20T10:10:00Z"
+    },
+    {
+      "from_status": "ASSIGNED",
+      "to_status": "IN_PROGRESS",
+      "note": null,
+      "timestamp": "2026-09-20T10:15:00Z"
+    },
+    {
+      "from_status": "IN_PROGRESS",
+      "to_status": "RESOLVED",
+      "note": "Replaced the damaged pipe and tested the water supply.",
+      "timestamp": "2026-09-20T10:25:00Z"
+    },
+    {
+      "from_status": "RESOLVED",
+      "to_status": "CLOSED",
+      "note": null,
+      "timestamp": "2026-09-20T10:30:00Z"
+    }
+  ]
 }
 ```
 
-Expected success: `200 OK`. An unknown ID should return `404 Not Found`.
+Expected status: `200 OK`. The query orders history by `timestamp` in ascending order.
 
-### Complete Work-Order Flow
+### 6.11 Error Response Shape
 
-Add verified evidence for this sequence:
+Validation, authorization, and database errors use a consistent JSON envelope:
 
-`OPEN` -> `ASSIGNED` -> `IN_PROGRESS` -> `RESOLVED` -> `CLOSED`
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Required field is missing or invalid"
+  }
+}
+```
 
-The `IN_PROGRESS` step uses `POST /api/work-orders/{id}/in-progress` after assignment.
+## 7. Complete Work-Order Flow
 
-- Create response: documented above; replace with captured API output when implemented.
-- Assignment response: documented above; replace with captured API output when implemented.
-- Resolution response: documented above; replace with captured API output when implemented.
-- Closure response: documented above; replace with captured API output when implemented.
-- History response: documented above; replace with captured API output when implemented.
+The complete supported flow is:
 
+```text
+POST /api/work-orders
+  OPEN
+    -> POST /api/work-orders/{id}/assign
+  ASSIGNED
+    -> POST /api/work-orders/{id}/in-progress
+  IN_PROGRESS
+    -> POST /api/work-orders/{id}/resolve
+  RESOLVED
+    -> POST /api/work-orders/{id}/close
+  CLOSED
+```
+
+Each transition is checked in PostgreSQL, updates `work_orders`, and appends to `status_history`. An invalid transition is rejected before the row is changed. The history endpoint provides an auditable record of the complete lifecycle.

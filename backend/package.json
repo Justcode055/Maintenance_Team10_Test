@@ -5,6 +5,9 @@
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/platform-suite.test.ts",
+    "test:unit": "node --experimental-strip-types --test tests/unit-suite.test.ts",
+    "test:ai-eval": "node --experimental-strip-types --test tests/golden-dataset.test.ts",
     "lint": "next lint"
   },
   "dependencies": {

@@ -1,0 +1,58 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [ main, "test/**" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quality-gate:
+    name: Code Quality, Security & Automated Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package.json
+            frontend/package.json
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm install
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Step 1 - TypeScript Typecheck (Backend & Frontend)
+        run: |
+          cd backend && npm run typecheck
+          cd ../frontend && npm run typecheck
+
+      - name: Step 2 - Dependency Security Audit
+        run: |
+          echo "Auditing backend dependencies..."
+          cd backend && npm audit --audit-level=critical || true
+          echo "Auditing frontend dependencies..."
+          cd ../frontend && npm audit --audit-level=critical || true
+
+      - name: Step 3 - Run AI Golden Dataset Evaluation (Slide 37)
+        run: |
+          cd backend
+          npm run test:ai-eval
+
+      - name: Step 4 - Run Platform Unit & Security Tests
+        run: |
+          cd backend
+          npm run test:unit
