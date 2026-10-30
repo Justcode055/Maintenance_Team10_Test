@@ -1,77 +1,106 @@
-# Maintenance Team 10
+# Campus Facility Maintenance Platform (Team 10)
 
-A contract-first campus maintenance platform that turns repair reports into trackable work orders with role-based dispatching, audit history, and event-driven webhooks.
+[![CI Quality Gate](https://github.com/Justcode055/Maintenance_Team10_Test/actions/workflows/ci.yml/badge.svg)](https://github.com/Justcode055/Maintenance_Team10_Test/actions/workflows/ci.yml)
+![Node.js 22 LTS](https://img.shields.io/badge/Node.js-22%20LTS-emerald)
+![Next.js 15](https://img.shields.io/badge/Next.js-15-black)
+![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-green)
 
-## Overview
+A contract-first campus maintenance platform that turns repair reports into trackable work orders with role-based dispatching, AI-assisted facility categorization with prompt injection defense, audit history, and event-driven webhooks.
 
-Maintenance Team 10 is a small full-stack monorepo for reporting and managing campus facility issues. It contains two independently runnable Next.js applications:
+Built for **Mae Fah Luang University (MFU)** — **Course 1305308 Platform Development** (Gate 3 & Lab 1 / Lab 2).
 
-- `frontend/` — a browser-based API test console and client for reporters and maintenance staff.
-- `backend/` — the REST API, authentication and authorization middleware, work-order lifecycle logic, and partner integrations.
+---
 
-The platform uses Supabase PostgreSQL for relational data and Supabase Auth for JWT-based role checks. Status changes can publish signed integration events to downstream systems such as helpdesk, notification, and analytics services.
+## 📌 Quick Access & Team Project Board
 
-## Core capabilities
+- **Interactive Team Project Board:** Open [`TEAM_PROJECT_BOARD.html`](./TEAM_PROJECT_BOARD.html) in your browser for task breakdown, copyable terminal commands, branch topology, and oral exam Q&A cheat sheets.
+- **Main Team Repository:** [khantnyi673150/Maintenance_Team10](https://github.com/khantnyi673150/Maintenance_Team10)
+- **Tested Reference Fork:** [Justcode055/Maintenance_Team10_Test](https://github.com/Justcode055/Maintenance_Team10_Test)
 
-- Create, list, view, update, and archive work orders.
-- Track work orders through the lifecycle:
-  `OPEN` → `ASSIGNED` → `IN_PROGRESS` → `RESOLVED` → `CLOSED`.
-- Assign staff members and record resolution notes.
-- Preserve immutable status history and audit information.
-- Enforce `reporter` and `staff` permissions on the server.
-- Categorize issue descriptions with an AI-oriented flow and manual fallback.
-- Publish signed `maintenance.status_changed` webhook events.
-- Support partner health checks and Team 12 integration webhooks.
+---
+
+## Core Capabilities
+
+- **Work-Order Lifecycle:** Create, list, view, update, and archive tickets through an atomic 5-stage lifecycle:  
+  `OPEN` ➔ `ASSIGNED` ➔ `IN_PROGRESS` ➔ `RESOLVED` ➔ `CLOSED`.
+- **Role-Based Access Control (RBAC):** Server-side enforcement ensuring students (`reporter`) cannot resolve or close tickets; resolution requires the `staff` role (`HTTP 403 Forbidden` on unauthorized attempts).
+- **AI Facility Categorization with Security Defense (Lab 1 / Threat T-01):**  
+  AI classifies problem descriptions into campus facility disciplines (Plumbing, Electrical, HVAC, Safety). Untrusted user input is encapsulated in XML tags and scanned with pre-execution regex interceptors (`[SYSTEM INSTRUCTION OVERRIDE]`, etc.). If an attack is detected, the AI safely triggers `fallbackToManual: true` in `< 0.1ms`.
+- **Automated CI Quality Gates & Testing (Lab 2):**  
+  GitHub Actions workflow running 4 automated gates (TypeScript typecheck, critical security audit, 10-Item Golden Dataset evaluation, and the 7-Test platform unit suite).
+- **Audit Trails & Integrity:** Chronological, immutable history tracking and deterministic HMAC-SHA256 signed webhook dispatching (`maintenance.status_changed`) to partner services (Team 12).
+
+---
 
 ## Architecture
 
 ```text
-┌──────────────────┐       HTTPS       ┌──────────────────────────┐
-│ Next.js frontend │ ────────────────▶ │ Next.js backend API      │
-│ Port 3001        │                   │ Port 3000                │
-└──────────────────┘                   └───────────┬──────────────┘
-                                                   │
-                              ┌────────────────────┼───────────────────┐
-                              ▼                    ▼                   ▼
-                     ┌────────────────┐  ┌────────────────┐  ┌─────────────────┐
-                     │ Supabase Auth  │  │ PostgreSQL      │  │ Webhook/partner │
-                     │ JWT + roles    │  │ work-order data│  │ integrations    │
-                     └────────────────┘  └────────────────┘  └─────────────────┘
+┌─────────────────────────┐       HTTPS       ┌──────────────────────────────┐
+│ Next.js Frontend (3001) │ ────────────────▶ │ Next.js Backend API (3000)   │
+│ • Ticket Tracker        │                   │ • REST Route Handlers        │
+│ • Submit + AI Fallback  │                   │ • requireAuth Middleware     │
+│ • Staff Dispatch Board  │                   │ • AI Classifier & Prompt Def.│
+└─────────────────────────┘                   └──────────────┬───────────────┘
+                                                             │
+                              ┌──────────────────────────────┼──────────────────────────────┐
+                              ▼                              ▼                              ▼
+                     ┌────────────────┐             ┌────────────────┐             ┌─────────────────┐
+                     │ Supabase Auth  │             │ PostgreSQL DB  │             │ Team 12 Partner │
+                     │ JWT & Roles    │             │ Work Orders    │             │ Webhook (HMAC)  │
+                     └────────────────┘             └────────────────┘             └─────────────────┘
 ```
 
-See [architecture.md](./architecture.md) for the detailed component and failure-handling overview.
+See [`architecture.md`](./architecture.md) for the detailed component breakdown and failure-handling topology.
 
-## Repository structure
+---
+
+## Repository Structure
 
 ```text
 Maintenance_Team10/
+├── .github/workflows/
+│   └── ci.yml                             # Automated 4-stage GitHub Actions CI Quality Gate
 ├── backend/
-│   ├── app/api/work-orders/       # REST route handlers
-│   ├── lib/                       # Authentication, validation, and Supabase helpers
-│   ├── supabase/migrations/       # Database schema, policies, and lifecycle functions
-│   ├── .env.example                # Backend environment template
-│   └── README.md                   # Backend setup and deployment details
+│   ├── app/api/ai/categorize/route.ts     # AI facility categorization endpoint
+│   ├── app/api/work-orders/               # REST lifecycle route handlers
+│   ├── lib/
+│   │   ├── ai-classifier.ts               # AI model logic & prompt injection defense
+│   │   ├── auth.ts                        # Server-side JWT & RBAC role checks
+│   │   └── work-order-schemas.ts          # Zod request validation schemas
+│   ├── supabase/migrations/               # Database schemas, RLS policies, and triggers
+│   ├── tests/
+│   │   ├── golden-dataset.test.ts         # 10-Item AI Golden Dataset Benchmark
+│   │   ├── platform-suite.test.ts         # Minimum 7-Test Platform Suite (Slide 31)
+│   │   └── unit-suite.test.ts             # Unit test runner
+│   ├── package.json                       # Scripts for typecheck, dev, and tests
+│   └── README.md                          # Backend-specific details
 ├── frontend/
-│   ├── app/                       # Client pages and API test console
-│   ├── lib/                       # Frontend helpers
-│   ├── .env.example                # Frontend environment template
-│   └── README.md                   # Frontend-specific instructions
-├── diagrams/                      # Architecture and design diagrams
-├── A3-Team10-Database-Design.md   # Database design documentation
-├── PRD_Maintenance.md              # Product requirements document
-└── architecture.md                # Platform architecture
+│   ├── app/page.tsx                       # 3 Core user screens + manual dropdown fallback
+│   ├── app/globals.css                    # Theme styling (preset b7Br9WuC8: Maia/Mist/Red)
+│   ├── tailwind.config.js                 # Tailwind palette & geometry
+│   └── README.md                          # Frontend setup
+├── diagrams/                              # Architecture diagrams & decision models
+├── TEAM_PROJECT_BOARD.html                # Visual task board & teammate instruction guide
+├── Lab1-Security.md                       # Threat modeling, attack payloads & code defense
+├── Lab2-Quality-Gates-and-Testing.md      # CI quality gate report & Red-to-Green evidence
+├── A3-Team10-Database-Design.md           # Database design & schema specification
+├── A5-Team10-Integration-Evidence.md      # Inter-service integration & webhook proofs
+└── PRD_Maintenance.md                     # Product requirements document
 ```
+
+---
 
 ## Prerequisites
 
-- Node.js 20 or later
-- npm
-- A Supabase project with Authentication and PostgreSQL enabled
-- Access to the project credentials and test-account passwords
+- **Node.js 22 LTS or later** *(Required for native TypeScript `--experimental-strip-types` support in the test runner)*
+- **npm** (v10+)
+- A **Supabase** project with PostgreSQL and Authentication enabled
 
-## Local setup
+---
 
-### 1. Configure the backend
+## Local Setup
+
+### 1. Configure the Backend
 
 ```powershell
 cd backend
@@ -79,7 +108,7 @@ npm install
 Copy-Item .env.example .env.local
 ```
 
-Set the required values in `backend/.env.local`. At minimum, configure:
+Set required variables in `backend/.env.local`:
 
 ```dotenv
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
@@ -88,12 +117,9 @@ FRONTEND_ORIGINS=http://localhost:3001
 SUPABASE_SERVICE_ROLE_KEY=<server-only-secret-key>
 ```
 
-Keep service-role keys, webhook secrets, partner keys, and access tokens private. Never commit `.env.local` or expose server-only secrets to the frontend.
+### 2. Apply Database Migrations
 
-### 2. Apply the database migrations
-
-The migration files are in `backend/supabase/migrations`. For a new Supabase project, run them in numeric order using the Supabase SQL Editor or the Supabase CLI:
-
+Apply migration files in `backend/supabase/migrations` sequentially in numeric order using Supabase SQL Editor:
 1. `001_initial_schema.sql`
 2. `002_api_policies_and_lifecycle.sql`
 3. `003_atomic_create_and_start.sql`
@@ -101,15 +127,7 @@ The migration files are in `backend/supabase/migrations`. For a new Supabase pro
 5. `005_fix_api_test_uuid_values.sql`
 6. `006_partner_webhook_events.sql`
 
-For CLI-based setup:
-
-```powershell
-cd backend
-npx supabase login
-npx supabase link --project-ref <project-ref>
-```
-
-### 3. Configure the frontend
+### 3. Configure the Frontend
 
 ```powershell
 cd ..\frontend
@@ -117,7 +135,7 @@ npm install
 Copy-Item .env.example .env.local
 ```
 
-Set the following values in `frontend/.env.local`:
+Set variables in `frontend/.env.local`:
 
 ```dotenv
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api
@@ -125,102 +143,102 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-anon-or-publishable-key>
 ```
 
-### 4. Start both applications
+### 4. Start Development Servers
 
-Run each application in a separate terminal from the repository root.
-
-**Backend**
-
+**Backend (Port 3000):**
 ```powershell
 cd backend
 npm run dev
 ```
 
-The backend runs at `http://localhost:3000`.
-
-**Frontend**
-
+**Frontend (Port 3001):**
 ```powershell
 cd frontend
 npm run dev
 ```
 
-The frontend runs at `http://localhost:3001`.
+Check health: `http://localhost:3000/api/health`
 
-Check the backend health endpoint at:
+---
 
-```text
-http://localhost:3000/api/health
-```
+## API Routes
 
-## API routes
+| Method | Route | Access | Purpose |
+|---|---|---|---|
+| `POST` | `/api/ai/categorize` | Public/Auth | Categorize issue descriptions via AI with injection defense |
+| `POST` | `/api/work-orders` | Reporter / Staff | Create a new work order (`OPEN`) |
+| `GET` | `/api/work-orders` | Reporter / Staff | List work orders with status and category filters |
+| `GET` | `/api/work-orders/{id}` | Reporter / Staff | Retrieve details of a specific work order |
+| `PATCH` | `/api/work-orders/{id}` | Staff | Update work-order metadata |
+| `DELETE` | `/api/work-orders/{id}` | Staff | Soft-archive a work order (`archived_at`) |
+| `POST` | `/api/work-orders/{id}/assign` | Staff | Assign ticket to a maintenance technician |
+| `POST` | `/api/work-orders/{id}/in-progress` | Staff | Move assigned ticket to `IN_PROGRESS` |
+| `POST` | `/api/work-orders/{id}/resolve` | **Staff Only** | Resolve order with resolution notes (`403` for reporters) |
+| `POST` | `/api/work-orders/{id}/close` | **Staff Only** | Formally close a resolved order |
+| `GET` | `/api/work-orders/{id}/history` | Reporter / Staff | View chronological, immutable audit history |
 
-The backend exposes the following work-order routes under `/api`:
-
-| Method | Route | Purpose |
-|---|---|---|
-| `POST` | `/work-orders` | Create a work order |
-| `GET` | `/work-orders` | List work orders, with filters |
-| `GET` | `/work-orders/{id}` | Retrieve one work order |
-| `PATCH` | `/work-orders/{id}` | Update work-order metadata |
-| `DELETE` | `/work-orders/{id}` | Archive a work order |
-| `POST` | `/work-orders/{id}/assign` | Assign a staff member |
-| `POST` | `/work-orders/{id}/in-progress` | Move an assigned order into progress |
-| `POST` | `/work-orders/{id}/resolve` | Add resolution notes and resolve the order |
-| `POST` | `/work-orders/{id}/close` | Close a resolved order |
-| `GET` | `/work-orders/{id}/history` | View status and audit history |
-
-Protected routes require a Supabase access token:
-
+Protected endpoints require a Supabase Bearer token:
 ```http
 Authorization: Bearer <supabase-access-token>
 ```
 
-The backend verifies the token and role on every protected request. Client-side route guards are not treated as authorization controls.
+---
 
-## Roles and lifecycle rules
+## 🧪 Automated Testing & Quality Gates
 
-- **Reporter** — submits work orders and views personal work-order progress.
-- **Staff** — views the dispatch board, assigns work, updates statuses, resolves issues, closes orders, and performs staff-only actions.
-- A work order cannot be resolved without an assigned staff member and non-empty resolution notes.
-- A work order can only be closed after it reaches `RESOLVED`.
-- Deletion archives the record by setting `archived_at`; it does not remove history.
+Run automated validation suites from the repository:
 
-## Validation
-
-Run these commands in each application directory as applicable:
-
+### 1. TypeScript Compile Verification
 ```powershell
-npm run typecheck
-npm run build
+npm run typecheck --prefix backend
+npm run typecheck --prefix frontend
 ```
 
-The backend also provides:
-
+### 2. Minimum 7-Test Platform Suite (Slide 31)
+Runs unit, integration, authentication/authorization, and end-to-end tests:
 ```powershell
-npm run lint
+npm run test:unit --prefix backend
+```
+*Tests lifecycle valid transitions, deterministic HMAC-SHA256 webhook generation, work order creation, audit history, HTTP 403 RBAC rejection, full 5-stage E2E flow, and AI classification behavior.*
+
+### 3. 10-Item AI Golden Dataset Benchmark (Slide 37)
+Evaluates AI categorization across 5 quality dimensions (Correctness, Safety, Enum Grounding, Schema Validity, Latency SLA <1500ms):
+```powershell
+npm run test:ai-eval --prefix backend
 ```
 
-## Deployment
+---
 
-The frontend and backend are designed to deploy as separate Vercel projects, with Supabase providing database and authentication services. Configure environment variables in the deployment platform rather than committing secrets to the repository.
+## 🛡️ GitHub Actions CI Quality Gate ("Hunt a Real Bug")
 
-Before production deployment:
+Continuous Integration runs on all pushes and Pull Requests via [`.github/workflows/ci.yml`](./.github/workflows/ci.yml):
 
-1. Apply all database migrations.
-2. Configure Supabase URL and public key values for the frontend.
-3. Configure server-only service keys and webhook secrets for the backend.
-4. Set `NEXT_PUBLIC_API_BASE_URL` to the deployed backend API URL.
-5. Verify `/api/health` and the integration health endpoints.
+```mermaid
+flowchart LR
+    A["Step 1: Typecheck<br>(Backend & Frontend)"] --> B["Step 2: Security Audit<br>(npm audit critical)"]
+    B --> C["Step 3: AI Golden Dataset<br>(10 Cases Benchmark)"]
+    C --> D["Step 4: Platform Unit Tests<br>(7-Test Suite)"]
+```
 
-## Documentation
+### Red ➔ Green Proof Lifecycle:
+- **Red Failure (Run `#40834684579`):** Pipeline failed under Node 20 because native TypeScript type-stripping (`--experimental-strip-types`) requires Node 22+. The quality gate blocked deployment as intended.
+- **Green Pass (Run `#40835134700` / `#41035517408`):** Workflow updated to Node 22 LTS; all 4 quality gates pass in **38 seconds**.
 
-- [Product requirements](./PRD_Maintenance.md)
-- [Architecture](./architecture.md)
-- [Database design](./A3-Team10-Database-Design.md)
-- [Backend setup and API details](./backend/README.md)
-- [Frontend setup](./frontend/README.md)
+---
 
-## Security
+## 📚 Documentation Index
 
-Do not commit passwords, Supabase service-role keys, webhook secrets, partner API keys, or access tokens. Use the provided `.env.example` files as templates and store real values in local environment files or deployment secrets.
+- [Interactive Team Board (`TEAM_PROJECT_BOARD.html`)](./TEAM_PROJECT_BOARD.html)
+- [Lab 1 Security Dossier (`Lab1-Security.md`)](./Lab1-Security.md)
+- [Lab 2 Quality Gates & Testing Report (`Lab2-Quality-Gates-and-Testing.md`)](./Lab2-Quality-Gates-and-Testing.md)
+- [Assignment 3: Database Design (`A3-Team10-Database-Design.md`)](./A3-Team10-Database-Design.md)
+- [Assignment 5: Integration Evidence (`A5-Team10-Integration-Evidence.md`)](./A5-Team10-Integration-Evidence.md)
+- [Product Requirements Document (`PRD_Maintenance.md`)](./PRD_Maintenance.md)
+- [Platform Architecture (`architecture.md`)](./architecture.md)
+
+---
+
+## Security Best Practices
+
+- Never commit passwords, Supabase service-role keys, webhook secrets, partner API keys, or access tokens.
+- Use `.env.example` templates and keep production secrets in environment variables or deployment secret stores.
