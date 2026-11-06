@@ -13,7 +13,7 @@ set building = excluded.building,
 
 insert into public.categories (id, name, sla_hours)
 values
-  ('22222222-2222-4222-8222-222222222222', 'Plumbing API Test', 12),
+  ('22222222-2222-4222-8222-222222222222', 'Plumbing', 12),
   ('55555555-5555-4555-8555-555555555555', 'Electrical', 8),
   ('66666666-6666-4666-8666-666666666666', 'HVAC', 18),
   ('77777777-7777-4777-8777-777777777777', 'Safety', 24)
@@ -28,7 +28,7 @@ loc as (
   select id from public.locations where building = 'Laboratory Wing' and floor_room = 'Second Floor - Lab 204' limit 1
 ),
 cat as (
-  select id from public.categories where name = 'Plumbing API Test' limit 1
+  select id from public.categories where name = 'Plumbing' limit 1
 )
 insert into public.work_orders (id, reporter_id, location_id, category_id, title, description, status)
 select
@@ -113,7 +113,7 @@ loc as (
   select id from public.locations where building = 'Administration Block' and floor_room = 'Ground Floor - Admin 001' limit 1
 ),
 cat as (
-  select id from public.categories where name = 'Plumbing API Test' limit 1
+  select id from public.categories where name = 'Plumbing' limit 1
 )
 insert into public.work_orders (id, reporter_id, location_id, category_id, title, description, status, resolution_notes)
 select

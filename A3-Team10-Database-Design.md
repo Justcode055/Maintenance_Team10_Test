@@ -168,6 +168,8 @@ erDiagram
 | 3 | `003_atomic_create_and_start.sql` | Atomic create and start-work functions |
 | 4 | `004_seed_api_test_data.sql` | Initial location and category fixtures |
 | 5 | `005_fix_api_test_uuid_values.sql` | RFC-compliant UUID fixtures used by the API console |
+| 6 | `006_partner_webhook_events.sql` | Partner webhook event storage |
+| 7 | `007_remove_plumbing_api_test_category.sql` | Consolidates the test category into Plumbing and preserves linked work orders |
 
 The optional `backend/supabase/seed.sql` file provides repeatable demonstration records for each lifecycle status.
 

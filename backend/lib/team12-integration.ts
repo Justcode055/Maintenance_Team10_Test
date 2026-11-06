@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac, randomUUID } from "node:crypto";
+import { getStatusSequence } from "@/lib/status";
 
 const partnerActivitiesUrl =
   process.env.TEAM12_PARTNER_ACTIVITIES_URL ??
@@ -58,6 +59,7 @@ export async function fetchTeam12ActivitiesWithRetry(limit = 20) {
         recovered,
         lastSuccessAt,
       });
+
       return {
         status: "ok" as const,
         data,
@@ -93,16 +95,33 @@ export async function fetchTeam12ActivitiesWithRetry(limit = 20) {
   };
 }
 
-export async function dispatchTeam12StatusChanged(input: {
+export type DispatchStatusChangedInput = {
   workOrderId: string;
   fromStatus: string;
   toStatus: string;
-}): Promise<void> {
+  activityId?: string | null;
+  sequence?: number;
+  version?: number;
+};
+
+export async function dispatchTeam12StatusChanged(
+  input: DispatchStatusChangedInput,
+): Promise<void> {
+  const sequence = input.sequence ?? input.version ?? getStatusSequence(input.toStatus);
   const event = {
     id: randomUUID(),
     type: "maintenance.status_changed",
     occurredAt: new Date().toISOString(),
-    data: input,
+    sequence,
+    version: sequence,
+    data: {
+      workOrderId: input.workOrderId,
+      fromStatus: input.fromStatus,
+      toStatus: input.toStatus,
+      sequence,
+      version: sequence,
+      ...(input.activityId ? { activityId: input.activityId } : {}),
+    },
   };
   const body = JSON.stringify(event);
   const secret = requiredSecret("TEAM12_WEBHOOK_SECRET");
@@ -112,9 +131,12 @@ export async function dispatchTeam12StatusChanged(input: {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
       "X-Webhook-Secret": secret,
       "X-Webhook-Signature": `sha256=${signature}`,
       "X-Event-ID": event.id,
+      "X-Event-Sequence": String(sequence),
+      "X-Event-Version": String(sequence),
     },
     body,
     signal: AbortSignal.timeout(10_000),
@@ -126,19 +148,19 @@ export async function dispatchTeam12StatusChanged(input: {
 
   console.info("Team 12 webhook delivered", {
     eventId: event.id,
+    sequence,
     status: response.status,
   });
 }
 
-export function dispatchStatusChangedWithoutBlocking(input: {
-  workOrderId: string;
-  fromStatus: string;
-  toStatus: string;
-}): void {
+export function dispatchStatusChangedWithoutBlocking(
+  input: DispatchStatusChangedInput,
+): void {
   void dispatchTeam12StatusChanged(input).catch((error: unknown) => {
     console.error("Team 12 webhook delivery failed", {
       workOrderId: input.workOrderId,
       toStatus: input.toStatus,
+      sequence: input.sequence,
       error: error instanceof Error ? error.message : "Unknown error",
     });
   });

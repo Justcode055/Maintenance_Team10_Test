@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-export function createBrowserSupabaseClient() {
+export function createBrowserSupabaseClient(accessToken?: string) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -8,5 +8,9 @@ export function createBrowserSupabaseClient() {
     throw new Error("Supabase frontend environment variables are missing");
   }
 
-  return createClient(url, anonKey);
+  return createClient(url, anonKey, {
+    global: accessToken
+      ? { headers: { Authorization: `Bearer ${accessToken}` } }
+      : undefined,
+  });
 }

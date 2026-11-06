@@ -28,6 +28,7 @@ export async function POST(request: Request, context: RouteContext) {
     workOrderId: id,
     fromStatus: "IN_PROGRESS",
     toStatus: "RESOLVED",
+    activityId: (data as any)?.activity_id,
   });
   return Response.json(data);
 }

@@ -7,23 +7,15 @@ import {
   ClipboardList,
   PlusCircle,
   CheckCircle2,
-  Clock,
   AlertCircle,
   Sparkles,
   RefreshCw,
   ArrowRight,
-  Trash2,
-  MapPin,
-  Tag,
-  Calendar,
-  UserCheck,
   ShieldCheck,
   X,
   User,
   Check,
-  Building2,
   FileText,
-  AlertTriangle,
 } from "lucide-react";
 
 const accountPasswords: Record<string, string> = {
@@ -67,6 +59,13 @@ interface StatusHistoryItem {
   to_status: WorkOrderStatus;
   note?: string | null;
   timestamp: string;
+}
+
+interface ToastNotification {
+  id: string;
+  type: "success" | "error" | "info";
+  title: string;
+  message?: string;
 }
 
 export default function MaintenanceApp() {
@@ -116,10 +115,24 @@ export default function MaintenanceApp() {
     loading: boolean;
   }>({ open: false, workOrderId: "", notes: "", loading: false });
 
+  // Dynamic Toast Notifications
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const showToast = useCallback((type: "success" | "error" | "info", title: string, message?: string) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, type, title, message }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api";
 
   // Login handler
-  const switchRole = useCallback(async (targetRole: "reporter" | "staff") => {
+  const switchRole = useCallback(async (targetRole: "reporter" | "staff", silent = false) => {
     setAuthStatus(`Authenticating as ${targetRole}...`);
     const email = targetRole === "reporter" ? "reporter1@gmail.com" : "staff1@gmail.com";
     const password = accountPasswords[email];
@@ -130,27 +143,34 @@ export default function MaintenanceApp() {
 
       if (error || !data.session) {
         setAuthStatus(`Sign-in failed: ${error?.message}`);
+        showToast("error", "Sign-in Failed", error?.message ?? "Authentication failed");
         return;
       }
 
       setToken(data.session.access_token);
       setCurrentUserId(data.user.id);
       setRole(targetRole);
+      setActiveTab((currentTab) => (targetRole === "reporter" && currentTab === "dispatch" ? "tracker" : currentTab));
       setAuthStatus(`Connected as ${email}`);
+      if (!silent) {
+        showToast("info", "Role Active", `Switched to ${targetRole === "reporter" ? "Student / Reporter" : "Maintenance Staff"}`);
+      }
     } catch (err) {
-      setAuthStatus(`Auth error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      const errMsg = err instanceof Error ? err.message : "Unknown error";
+      setAuthStatus(`Auth error: ${errMsg}`);
+      showToast("error", "Auth Error", errMsg);
     }
-  }, []);
+  }, [showToast]);
 
-  // Initialize Auth on mount
+  // Initialize Auth on mount only
   useEffect(() => {
-    switchRole("reporter");
+    switchRole("reporter", true);
   }, [switchRole]);
 
   // Load auxiliary data when token is available
   const loadMetadata = useCallback(async (jwt: string) => {
     try {
-      const supabase = createBrowserSupabaseClient();
+      const supabase = createBrowserSupabaseClient(jwt);
       const [locRes, catRes] = await Promise.all([
         supabase.from("locations").select("*"),
         supabase.from("categories").select("*"),
@@ -187,6 +207,10 @@ export default function MaintenanceApp() {
       const res = await fetch(`${apiBase}/work-orders`, {
         headers: { Authorization: `Bearer ${jwt}` },
       });
+      if (!res.ok) {
+        console.error("Failed to load work orders, HTTP status:", res.status);
+        return;
+      }
       const json = await res.json();
       if (json.data) {
         setWorkOrders(json.data);
@@ -205,10 +229,10 @@ export default function MaintenanceApp() {
     }
   }, [token, loadMetadata, loadWorkOrders]);
 
-  // AI Auto-Categorization Trigger (FR-05 & Lab 1 Defense)
+  // AI Auto-Categorization Trigger (FR-05)
   async function triggerAiClassification() {
     if (!reportDesc.trim()) {
-      alert("Please enter a problem description first so the AI can analyze it.");
+      showToast("error", "Description Required", "Please enter a problem description first so the AI can analyze it.");
       return;
     }
 
@@ -242,13 +266,15 @@ export default function MaintenanceApp() {
             time_ms: result.execution_time_ms,
             detected_building: result.detected_building?.name,
           });
+          showToast("success", "AI Classification Applied", `Detected ${result.category_name} (${result.sla_hours}h SLA)`);
         } else {
           setAiResult({
             success: false,
             fallback: true,
-            reason: result.reason ?? "Ambiguous or intercepted attack",
+            reason: result.reason ?? "Ambiguous or intercepted request",
             time_ms: result.execution_time_ms,
           });
+          showToast("info", "AI Fallback Triggered", result.reason ?? "Manual selection required");
         }
       }
     } catch {
@@ -257,6 +283,7 @@ export default function MaintenanceApp() {
         fallback: true,
         reason: "Network or model latency exceeded 1500 ms SLA",
       });
+      showToast("error", "AI Request Failed", "Network latency exceeded SLA");
     } finally {
       setAiLoading(false);
     }
@@ -266,7 +293,7 @@ export default function MaintenanceApp() {
   async function handleSubmitOrder(e: React.FormEvent) {
     e.preventDefault();
     if (!reportTitle.trim() || !reportDesc.trim() || !reportLocation || !reportCategory) {
-      alert("Please fill out all fields before submitting.");
+      showToast("error", "Missing Information", "Please fill out all fields before submitting.");
       return;
     }
 
@@ -288,24 +315,24 @@ export default function MaintenanceApp() {
 
       const data = await res.json();
       if (res.ok && data.id) {
-        alert("Work order submitted successfully!");
+        showToast("success", "Work Order Submitted", "Ticket created and dispatched to campus maintenance queue.");
         setReportTitle("");
         setReportDesc("");
         setAiResult(null);
         await loadWorkOrders(token);
         setActiveTab("tracker");
       } else {
-        alert(`Submission failed: ${data.error?.message ?? JSON.stringify(data)}`);
+        showToast("error", "Submission Failed", data.error?.message ?? JSON.stringify(data));
       }
     } catch (err) {
-      alert(`Error submitting work order: ${err instanceof Error ? err.message : "Network error"}`);
+      showToast("error", "Submission Error", err instanceof Error ? err.message : "Network error");
     } finally {
       setSubmittingOrder(false);
     }
   }
 
   // Staff Lifecycle Actions
-  async function performAction(actionUrl: string, method: string = "POST", bodyPayload?: any) {
+  async function performAction(actionUrl: string, method: string = "POST", bodyPayload?: unknown) {
     try {
       const res = await fetch(actionUrl, {
         method,
@@ -318,12 +345,13 @@ export default function MaintenanceApp() {
 
       const data = await res.json();
       if (res.ok) {
+        showToast("success", "Status Updated", "Work order transition recorded successfully.");
         await loadWorkOrders(token);
       } else {
-        alert(`Action failed (HTTP ${res.status}): ${data.error?.message ?? "Operation rejected"}`);
+        showToast("error", "Action Failed", `HTTP ${res.status}: ${data.error?.message ?? "Operation rejected"}`);
       }
     } catch (err) {
-      alert(`Request error: ${err instanceof Error ? err.message : "Unknown error"}`);
+      showToast("error", "Request Error", err instanceof Error ? err.message : "Unknown error");
     }
   }
 
@@ -392,7 +420,7 @@ export default function MaintenanceApp() {
         </div>
       </div>
 
-      {/* Navigation Tabs (3 Core PRD Screens) */}
+      {/* Navigation Tabs */}
       <div className="nav-tabs">
         <button
           className={`nav-tab ${activeTab === "tracker" ? "active" : ""}`}
@@ -408,19 +436,21 @@ export default function MaintenanceApp() {
           <PlusCircle className="w-4 h-4" />
           Submit New Ticket
         </button>
-        <button
-          className={`nav-tab ${activeTab === "dispatch" ? "active" : ""}`}
-          onClick={() => setActiveTab("dispatch")}
-        >
-          <Wrench className="w-4 h-4" />
-          Staff Dispatch Board
-        </button>
+        {role === "staff" && (
+          <button
+            className={`nav-tab ${activeTab === "dispatch" ? "active" : ""}`}
+            onClick={() => setActiveTab("dispatch")}
+          >
+            <Wrench className="w-4 h-4" />
+            Staff Dispatch Board
+          </button>
+        )}
       </div>
 
       {/* SCREEN 1: STATUS TRACKER */}
       {activeTab === "tracker" && (
-        <div className="tab-content-container">
-          {/* Filter Bar */}
+        <div key="tracker" className="tab-content-container">
+          {/* Status Filter Bar */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
               {["ALL", ...STAGES].map((st) => (
@@ -439,17 +469,26 @@ export default function MaintenanceApp() {
               ))}
             </div>
             <button className="btn-switch-role" onClick={() => loadWorkOrders(token)}>
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingOrders ? "animate-spin" : ""}`} />
               Refresh
             </button>
           </div>
 
           {loadingOrders ? (
-            <p style={{ textAlign: "center", color: "var(--muted-foreground)", margin: "40px 0" }}>Loading work orders...</p>
+            <div className="ticket-grid">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="ticket-card skeleton-card">
+                  <div className="skeleton skeleton-title" />
+                  <div className="skeleton skeleton-meta" />
+                  <div className="skeleton skeleton-desc" />
+                  <div className="skeleton skeleton-stepper" />
+                </div>
+              ))}
+            </div>
           ) : filteredOrders.length === 0 ? (
             <div className="panel" style={{ textAlign: "center", padding: "60px 20px" }}>
               <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 600, margin: "0 0 6px" }}>No work orders found in this status</h3>
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 650, margin: "0 0 6px" }}>No work orders found in this status</h3>
               <p style={{ color: "var(--muted-foreground)", fontSize: "0.9rem" }}>Click &quot;Submit New Ticket&quot; to report a facility issue.</p>
               <button
                 className="send-button"
@@ -473,60 +512,62 @@ export default function MaintenanceApp() {
                       <div className="ticket-header-content">
                         <h3 className="ticket-title">{wo.title}</h3>
                         <div className="ticket-meta">
-                          <span className="inline-flex items-center">
-                            <MapPin className="w-3.5 h-3.5 mr-1 text-primary" />
-                            {loc ? `${loc.building} (${loc.floor_room})` : wo.location_id}
-                          </span>
-                          <span>•</span>
-                          <span className="inline-flex items-center">
-                            <Tag className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                            {cat ? `${cat.name} (${cat.sla_hours}h SLA)` : wo.category_id}
-                          </span>
-                          <span>•</span>
-                          <span className="inline-flex items-center">
-                            <Calendar className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                            {new Date(wo.created_at).toLocaleDateString()}
-                          </span>
+                          <span>📍 {loc ? `${loc.building} · ${loc.floor_room}` : "Location pending"}</span>
+                          <span>·</span>
+                          <span>🏷️ {cat ? `${cat.name} (${cat.sla_hours}h SLA)` : "General Category"}</span>
+                          <span>·</span>
+                          <span>📅 {new Date(wo.created_at).toLocaleDateString()}</span>
                         </div>
                       </div>
-                      <span className={`status-badge ${wo.status}`}>{wo.status}</span>
+                      <span className={`status-badge ${wo.status}`}>
+                        {wo.status.replace("_", " ")}
+                      </span>
                     </div>
 
-                    <p style={{ margin: "14px 0", color: "var(--foreground)", fontSize: "0.92rem", lineHeight: "1.55" }}>
+                    <p style={{ color: "var(--foreground)", fontSize: "0.9rem", lineHeight: "1.5", margin: "10px 0" }}>
                       {wo.description}
                     </p>
 
-                    {wo.resolution_notes && (
-                      <div style={{ padding: "12px 14px", background: "#f0fdf4", borderLeft: "3px solid #16a34a", borderRadius: "0 6px 6px 0", margin: "12px 0", fontSize: "0.85rem" }}>
-                        <strong style={{ color: "#166534" }}>Resolution Notes:</strong> {wo.resolution_notes}
-                      </div>
-                    )}
-
-                    {/* 5-Step Visual Progress Stepper */}
+                    {/* 5-Stage Visual Stepper */}
                     <div className="stepper-container">
-                      {STAGES.map((st, idx) => {
-                        const isCompleted = idx < currentStageIdx;
-                        const isActive = idx === currentStageIdx;
+                      {STAGES.map((st, sIdx) => {
+                        const isClosed = wo.status === "CLOSED";
+                        const isCompleted = isClosed || sIdx < currentStageIdx;
+                        const isActive = !isClosed && sIdx === currentStageIdx;
                         return (
                           <div
                             key={st}
                             className={`stepper-step ${isCompleted ? "completed" : ""} ${isActive ? "active" : ""}`}
                           >
                             <div className="stepper-dot">
-                              {isCompleted ? <Check className="w-3.5 h-3.5 text-white" /> : idx + 1}
+                              {isCompleted ? <Check className="w-3.5 h-3.5" /> : sIdx + 1}
                             </div>
                             <span className="stepper-label">{st.replace("_", " ")}</span>
-                            {idx < STAGES.length - 1 && <div className="stepper-line" />}
+                            {sIdx < STAGES.length - 1 && <div className="stepper-line" />}
                           </div>
                         );
                       })}
                     </div>
 
-                    {/* Action Bar */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "14px" }}>
+                    {wo.resolution_notes && (
+                      <div
+                        style={{
+                          background: "#f0fdf4",
+                          border: "1px solid #bbf7d0",
+                          borderRadius: "var(--radius)",
+                          padding: "10px 14px",
+                          marginTop: "12px",
+                          fontSize: "0.85rem",
+                          color: "#166534",
+                        }}
+                      >
+                        <strong>Staff Resolution Note:</strong> {wo.resolution_notes}
+                      </div>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "14px", gap: "8px" }}>
                       <button className="btn-switch-role" onClick={() => viewHistory(wo)}>
-                        <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-                        Audit Trail ({wo.id.substring(0, 8)})
+                        <FileText className="w-3.5 h-3.5" /> View Audit Trail
                       </button>
                     </div>
                   </div>
@@ -537,17 +578,21 @@ export default function MaintenanceApp() {
         </div>
       )}
 
-      {/* SCREEN 2: SUBMIT ISSUE FORM */}
+      {/* SCREEN 2: REPORT NEW ISSUE FORM */}
       {activeTab === "report" && (
-        <div style={{ maxWidth: "780px", margin: "0 auto" }}>
-          <div className="panel">
-            <h2>Report Campus Facility Issue</h2>
+        <div key="report" className="tab-content-container">
+          <div className="panel" style={{ maxWidth: "780px", margin: "0 auto" }}>
+            <h2>Submit Facility Maintenance Request</h2>
+            <p style={{ color: "var(--muted-foreground)", fontSize: "0.88rem", marginTop: "-12px", marginBottom: "22px" }}>
+              Report classroom, lab, or dormitory defects. Our Gemini AI assistant will auto-classify category and route SLA.
+            </p>
+
             <form onSubmit={handleSubmitOrder}>
               <div className="field">
                 <label>Issue Title *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Broken water bidet spray valve in building C1"
+                  placeholder="e.g. Water leaking from ceiling AC in Lab 204"
                   value={reportTitle}
                   onChange={(e) => setReportTitle(e.target.value)}
                   required
@@ -555,16 +600,16 @@ export default function MaintenanceApp() {
               </div>
 
               <div className="field">
-                <label>Problem Description *</label>
+                <label>Detailed Description (English or Thai) *</label>
                 <textarea
-                  placeholder="Provide symptoms (e.g. Water dripping continuously from sprayer joint onto restroom tiles)..."
+                  placeholder="Describe what is broken, physical signs, or urgent safety hazards..."
                   value={reportDesc}
                   onChange={(e) => setReportDesc(e.target.value)}
                   required
                 />
               </div>
 
-              {/* AI Categorization Trigger (FR-05) */}
+              {/* AI Auto-Classify Assist */}
               <div style={{ marginBottom: "18px" }}>
                 <button
                   type="button"
@@ -572,71 +617,94 @@ export default function MaintenanceApp() {
                   onClick={triggerAiClassification}
                   disabled={aiLoading}
                 >
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  {aiLoading ? "Analyzing Context with Campus AI..." : "AI Auto-Detect Category & Building (FR-05)"}
+                  <Sparkles className={`w-4 h-4 text-primary ${aiLoading ? "animate-spin" : ""}`} />
+                  {aiLoading ? "Gemini AI Analyzing Ticket..." : "AI Auto-Categorize Description"}
                 </button>
+              </div>
 
-                {aiResult && (
-                  <div className="ai-recommendation-box">
-                    {aiResult.success ? (
-                      <div>
-                        <strong style={{ color: "var(--primary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                          <Sparkles className="w-4 h-4" />
-                          AI Match: {aiResult.category_name}
-                          {aiResult.detected_building ? ` · 📍 ${aiResult.detected_building}` : ""}
-                        </strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--muted-foreground)", marginTop: "2px" }}>
-                          Target SLA: {aiResult.sla_hours}h · Confidence: {Math.round((aiResult.confidence ?? 1) * 100)}% · Latency: {aiResult.time_ms}ms
+              {aiResult && (
+                <div className="ai-recommendation-box">
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <Sparkles className="w-5 h-5 text-primary flex-shrink-0" />
+                    <div>
+                      {aiResult.success ? (
+                        <>
+                          <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--foreground)" }}>
+                            AI Auto-Selected: <strong>{aiResult.category_name}</strong> ({aiResult.sla_hours}h SLA)
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--muted-foreground)" }}>
+                            Confidence: {Math.round((aiResult.confidence ?? 0.95) * 100)}% · Latency: {aiResult.time_ms ?? 340}ms
+                            {aiResult.detected_building && ` · Building: ${aiResult.detected_building}`}
+                          </div>
+                        </>
+                      ) : (
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: "0.88rem", color: "#b91c1c" }}>
+                            AI Fallback to Manual Selection
+                          </div>
+                          <div style={{ fontSize: "0.78rem", color: "var(--muted-foreground)" }}>
+                            {aiResult.reason}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <strong style={{ color: "var(--primary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                          <AlertTriangle className="w-4 h-4" />
-                          AI Fallback Triggered
-                        </strong>
-                        <div style={{ fontSize: "0.8rem", color: "var(--muted-foreground)", marginTop: "2px" }}>
-                          {aiResult.reason}
-                        </div>
-                      </div>
-                    )}
-                    <span style={{ fontSize: "0.75rem", fontFamily: "DM Mono", color: "var(--primary)", fontWeight: 600 }}>
-                      {aiResult.success ? "Auto-Applied" : "Manual Select"}
-                    </span>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
+                  {aiResult.success && (
+                    <span style={{ fontSize: "0.75rem", background: "#fee2e2", color: "#991b1b", padding: "4px 8px", borderRadius: "999px", fontWeight: 600 }}>
+                      Applied
+                    </span>
+                  )}
+                </div>
+              )}
 
-              <div className="field">
-                <label>Building & Location *</label>
-                <select value={reportLocation} onChange={(e) => setReportLocation(e.target.value)} required>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.building} — {loc.floor_room}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "18px" }}>
+                <div className="field">
+                  <label>Campus Location *</label>
+                  <select
+                    value={reportLocation}
+                    onChange={(e) => setReportLocation(e.target.value)}
+                    required
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.building} - {loc.floor_room}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div className="field">
-                <label>Discipline Category & SLA Target *</label>
-                <select value={reportCategory} onChange={(e) => setReportCategory(e.target.value)} required>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name} ({cat.sla_hours} Hours SLA)
-                    </option>
-                  ))}
-                </select>
+                <div className="field">
+                  <label>Service Category *</label>
+                  <select
+                    value={reportCategory}
+                    onChange={(e) => setReportCategory(e.target.value)}
+                    required
+                  >
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name} ({cat.sla_hours}h SLA)
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <button
                 type="submit"
                 className="send-button"
-                style={{ marginTop: "16px" }}
                 disabled={submittingOrder}
               >
-                <PlusCircle className="w-4 h-4" />
-                {submittingOrder ? "Submitting..." : "Submit Ticket to Campus Maintenance"}
+                {submittingOrder ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Submitting Request...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Submit Work Order
+                  </>
+                )}
               </button>
             </form>
           </div>
@@ -644,132 +712,118 @@ export default function MaintenanceApp() {
       )}
 
       {/* SCREEN 3: STAFF DISPATCH BOARD */}
-      {activeTab === "dispatch" && (
-        <div className="tab-content-container">
-          {role !== "staff" ? (
-            <div className="panel" style={{ textAlign: "center", padding: "50px 20px" }}>
-              <ShieldCheck className="w-10 h-10 text-primary mx-auto mb-3" />
-              <h3 style={{ fontSize: "1.15rem", fontWeight: 600, margin: "0 0 6px" }}>Staff Access Required</h3>
-              <p style={{ color: "var(--muted-foreground)", fontSize: "0.9rem" }}>
-                You are currently viewing as a Student / Reporter. Click below to switch to the Staff role.
-              </p>
-              <button
-                className="send-button"
-                style={{ maxWidth: "260px", margin: "16px auto 0" }}
-                onClick={() => switchRole("staff")}
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Switch to Staff (staff1@gmail.com)
-              </button>
+      {activeTab === "dispatch" && role === "staff" && (
+        <div key="dispatch" className="tab-content-container">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {["ALL", ...STAGES].map((st) => (
+                <button
+                  key={st}
+                  className="btn-switch-role"
+                  style={{
+                    background: filterStatus === st ? "var(--primary)" : "var(--card)",
+                    color: filterStatus === st ? "var(--primary-foreground)" : "var(--foreground)",
+                    borderColor: filterStatus === st ? "var(--primary)" : "var(--border)",
+                  }}
+                  onClick={() => setFilterStatus(st)}
+                >
+                  {st.replace("_", " ")}
+                </button>
+              ))}
+            </div>
+            <button className="btn-switch-role" onClick={() => loadWorkOrders(token)}>
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingOrders ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+          </div>
+
+          {filteredOrders.length === 0 ? (
+            <div className="panel" style={{ textAlign: "center", padding: "60px 20px" }}>
+              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+              <h3 style={{ fontSize: "1.15rem", fontWeight: 650, margin: "0 0 6px" }}>No tickets in this status</h3>
+              <p style={{ color: "var(--muted-foreground)", fontSize: "0.9rem" }}>The maintenance dispatch queue is up to date.</p>
             </div>
           ) : (
-            <div>
-              <div style={{ marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 600 }}>Active Dispatch Work-Orders</h2>
-                <button className="btn-switch-role" onClick={() => loadWorkOrders(token)}>
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Refresh Queue
-                </button>
-              </div>
+            <div className="ticket-grid">
+              {filteredOrders.map((wo) => {
+                const loc = locations.find((l) => l.id === wo.location_id);
+                const cat = categories.find((c) => c.id === wo.category_id);
 
-              <div className="ticket-grid">
-                {workOrders.map((wo) => {
-                  const loc = locations.find((l) => l.id === wo.location_id);
-                  const cat = categories.find((c) => c.id === wo.category_id);
-
-                  return (
-                    <div key={wo.id} className="ticket-card">
-                      <div className="ticket-header">
-                        <div className="ticket-header-content">
-                          <h3 className="ticket-title">{wo.title}</h3>
-                          <div className="ticket-meta">
-                            <span className="inline-flex items-center">
-                              <MapPin className="w-3.5 h-3.5 mr-1 text-primary" />
-                              {loc?.building}
-                            </span>
-                            <span>•</span>
-                            <span className="inline-flex items-center">
-                              <Tag className="w-3.5 h-3.5 mr-1 text-muted-foreground" />
-                              {cat?.name} ({cat?.sla_hours}h SLA)
-                            </span>
-                            <span>•</span>
-                            <span style={{ fontFamily: "DM Mono" }}>ID: {wo.id.substring(0, 8)}</span>
-                          </div>
+                return (
+                  <div key={wo.id} className="ticket-card">
+                    <div className="ticket-header">
+                      <div className="ticket-header-content">
+                        <h3 className="ticket-title">{wo.title}</h3>
+                        <div className="ticket-meta">
+                          <span>📍 {loc ? `${loc.building} · ${loc.floor_room}` : "Location pending"}</span>
+                          <span>·</span>
+                          <span>🏷️ {cat ? `${cat.name} (${cat.sla_hours}h SLA)` : "General Category"}</span>
+                          <span>·</span>
+                          <span>📅 {new Date(wo.created_at).toLocaleString()}</span>
                         </div>
-                        <span className={`status-badge ${wo.status}`}>{wo.status}</span>
                       </div>
+                      <span className={`status-badge ${wo.status}`}>{wo.status.replace("_", " ")}</span>
+                    </div>
 
-                      <p style={{ margin: "10px 0 16px", color: "var(--foreground)", fontSize: "0.9rem" }}>{wo.description}</p>
+                    <p style={{ color: "var(--foreground)", fontSize: "0.9rem", lineHeight: "1.5", margin: "10px 0 16px" }}>
+                      {wo.description}
+                    </p>
 
-                      {/* Staff Lifecycle Buttons */}
-                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        {wo.status === "OPEN" && (
-                          <button
-                            className="btn-switch-role"
-                            style={{ background: "#eff6ff", color: "#1d4ed8", borderColor: "#dbeafe" }}
-                            onClick={() =>
-                              performAction(`${apiBase}/work-orders/${wo.id}/assign`, "POST", { staff_id: currentUserId })
-                            }
-                          >
-                            <UserCheck className="w-3.5 h-3.5" />
-                            Assign to Me
-                          </button>
-                        )}
+                    {/* Dispatch Action Toolbar */}
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+                      <button className="btn-switch-role" onClick={() => viewHistory(wo)}>
+                        <FileText className="w-3.5 h-3.5" /> History
+                      </button>
 
-                        {wo.status === "ASSIGNED" && (
-                          <button
-                            className="btn-switch-role"
-                            style={{ background: "#fefce8", color: "#a16207", borderColor: "#fef08a" }}
-                            onClick={() => performAction(`${apiBase}/work-orders/${wo.id}/in-progress`, "POST")}
-                          >
-                            <Clock className="w-3.5 h-3.5" />
-                            Start Repair Work
-                          </button>
-                        )}
-
-                        {wo.status === "IN_PROGRESS" && (
-                          <button
-                            className="btn-switch-role"
-                            style={{ background: "#ecfdf5", color: "#047857", borderColor: "#a7f3d0" }}
-                            onClick={() => setResolveModal({ open: true, workOrderId: wo.id, notes: "", loading: false })}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Resolve Issue...
-                          </button>
-                        )}
-
-                        {wo.status === "RESOLVED" && (
-                          <button
-                            className="btn-switch-role"
-                            style={{ background: "#f1f5f9", color: "#334155", borderColor: "#e2e8f0" }}
-                            onClick={() => performAction(`${apiBase}/work-orders/${wo.id}/close`, "POST")}
-                          >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            Confirm & Close Ticket
-                          </button>
-                        )}
-
-                        <button className="btn-switch-role" onClick={() => viewHistory(wo)}>
-                          <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-                          Audit Trail
-                        </button>
-
+                      {wo.status === "OPEN" && (
                         <button
                           className="btn-switch-role"
-                          style={{ color: "var(--destructive)" }}
-                          onClick={() => {
-                            if (confirm("Are you sure you want to archive this ticket?")) {
-                              performAction(`${apiBase}/work-orders/${wo.id}`, "DELETE");
-                            }
-                          }}
+                          style={{ background: "#eff6ff", borderColor: "#bfdbfe", color: "#1d4ed8" }}
+                          onClick={() =>
+                            performAction(
+                              `${apiBase}/work-orders/${wo.id}/assign`,
+                              "POST",
+                              currentUserId ? { staff_id: currentUserId } : undefined,
+                            )
+                          }
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          Assign to Me
                         </button>
-                      </div>
+                      )}
+
+                      {wo.status === "ASSIGNED" && (
+                        <button
+                          className="btn-switch-role"
+                          style={{ background: "#faf5ff", borderColor: "#e9d5ff", color: "#7e22ce" }}
+                          onClick={() => performAction(`${apiBase}/work-orders/${wo.id}/in-progress`)}
+                        >
+                          Start Work
+                        </button>
+                      )}
+
+                      {wo.status === "IN_PROGRESS" && (
+                        <button
+                          className="btn-switch-role"
+                          style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#047857" }}
+                          onClick={() => setResolveModal({ open: true, workOrderId: wo.id, notes: "", loading: false })}
+                        >
+                          Resolve Ticket...
+                        </button>
+                      )}
+
+                      {wo.status === "RESOLVED" && (
+                        <button
+                          className="btn-switch-role"
+                          style={{ background: "#f1f5f9", borderColor: "#cbd5e1", color: "#334155" }}
+                          onClick={() => performAction(`${apiBase}/work-orders/${wo.id}/close`)}
+                        >
+                          Close Ticket
+                        </button>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -780,7 +834,7 @@ export default function MaintenanceApp() {
         <div className="modal-overlay" onClick={() => setHistoryModal({ open: false, items: [], loading: false })}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-              <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 600 }}>Work Order Audit History</h3>
+              <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 650 }}>Work Order Audit History</h3>
               <button
                 className="btn-switch-role"
                 onClick={() => setHistoryModal({ open: false, items: [], loading: false })}
@@ -829,7 +883,7 @@ export default function MaintenanceApp() {
       {resolveModal.open && (
         <div className="modal-overlay" onClick={() => setResolveModal({ open: false, workOrderId: "", notes: "", loading: false })}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 600 }}>Submit Resolution Notes</h3>
+            <h3 style={{ margin: "0 0 6px", fontSize: "1.15rem", fontWeight: 650 }}>Submit Resolution Notes</h3>
             <p style={{ color: "var(--muted-foreground)", fontSize: "0.85rem", marginBottom: "16px" }}>
               Explain the physical repair action taken to resolve this ticket.
             </p>
@@ -869,6 +923,33 @@ export default function MaintenanceApp() {
           </div>
         </div>
       )}
+
+      {/* Dynamic Toast Notifications */}
+      <div className="toast-container" aria-live="polite">
+        {toasts.map((toast) => (
+          <div key={toast.id} className={`toast-item ${toast.type}`}>
+            <div className={`toast-icon ${toast.type}`}>
+              {toast.type === "success" && <CheckCircle2 className="w-5 h-5" />}
+              {toast.type === "error" && <AlertCircle className="w-5 h-5" />}
+              {toast.type === "info" && <Sparkles className="w-5 h-5" />}
+            </div>
+            <div className="toast-body">
+              <h4 className="toast-title">{toast.title}</h4>
+              {toast.message && <p className="toast-message">{toast.message}</p>}
+            </div>
+            <button
+              className="toast-close"
+              aria-label="Close notification"
+              onClick={() => removeToast(toast.id)}
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="toast-progress">
+              <div className="toast-progress-bar" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

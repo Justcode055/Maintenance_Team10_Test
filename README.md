@@ -126,6 +126,7 @@ Apply migration files in `backend/supabase/migrations` sequentially in numeric o
 4. `004_seed_api_test_data.sql`
 5. `005_fix_api_test_uuid_values.sql`
 6. `006_partner_webhook_events.sql`
+7. `007_remove_plumbing_api_test_category.sql`
 
 ### 3. Configure the Frontend
 

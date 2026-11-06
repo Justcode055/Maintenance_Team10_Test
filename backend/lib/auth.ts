@@ -1,5 +1,6 @@
 import "server-only";
 
+import { timingSafeEqual } from "node:crypto";
 import type { User } from "@supabase/supabase-js";
 import { createRequestSupabaseClient } from "@/lib/supabase-server";
 import { errorResponse } from "@/lib/api";
@@ -42,6 +43,25 @@ export async function requireAuth(
     const message = error instanceof Error ? error.message : "Authentication failed";
     return { response: errorResponse(500, "AUTH_CONFIGURATION_ERROR", message) };
   }
+}
+
+export function requirePartnerAuth(request: Request): Response | null {
+  const expected = process.env.TEAM10_PARTNER_KEY;
+  const provided = request.headers.get("x-partner-key");
+  if (!expected || !provided) {
+    return errorResponse(401, "INVALID_PARTNER_KEY", "Partner key is invalid or missing");
+  }
+
+  const providedBuffer = Buffer.from(provided);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    providedBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(providedBuffer, expectedBuffer)
+  ) {
+    return errorResponse(401, "INVALID_PARTNER_KEY", "Partner key is invalid or missing");
+  }
+
+  return null;
 }
 
 function resolveRole(user: User): AuthContext["role"] | null {
