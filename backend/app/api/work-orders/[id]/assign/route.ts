@@ -1,5 +1,4 @@
-import { createRequestSupabaseClient } from "@/lib/supabase-server";
-import { errorResponse, readRequestText, supabaseErrorResponse } from "@/lib/api";
+import { errorResponse, readRequestText, supabaseErrorResponse, timedJson } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import {
   assignWorkOrderSchema,
@@ -44,7 +43,8 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { id } = await context.params;
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase.rpc("assign_work_order", {
     p_work_order_id: id,
     p_staff_id: staffId,
@@ -57,5 +57,5 @@ export async function POST(request: Request, context: RouteContext) {
     toStatus: "ASSIGNED",
     activityId: (data as any)?.activity_id,
   });
-  return Response.json(data);
+  return timedJson(data, auth.context!, databaseStartedAt);
 }

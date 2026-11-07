@@ -4,6 +4,9 @@
 
 @import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap");
 
+.local-demo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 18px; margin-bottom: 20px; border: 1px solid #e8cd90; border-radius: 10px; background: #fffaeb; color: #705316; font-size: 13px; }
+.local-demo-banner button { margin-left: auto; text-decoration: underline; font-weight: 600; }
+
 /* --- shadcn preset b7Br9WuC8 (maia / mist / red) --- */
 :root {
   --background: oklch(0.982 0.003 220);
@@ -66,6 +69,20 @@ button:disabled:active {
   background: radial-gradient(circle at 10% 10%, rgba(220, 38, 38, 0.03) 0%, transparent 40%),
               linear-gradient(180deg, #f9fafb 0%, #f3f4f6 100%);
 }
+
+.auth-route-loading {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  color: var(--muted-foreground);
+  background: #f7f6f4;
+}
+
+.auth-route-loading > svg:first-child { color: var(--primary); }
+.auth-route-loading p { margin: 0; font-size: 0.9rem; }
 
 .topbar, .role-switcher-banner, .nav-tabs, .tab-content-container {
   max-width: 1200px;
@@ -277,6 +294,104 @@ h1 {
   display: grid;
   gap: 6px;
   margin-bottom: 18px;
+}
+
+.work-order-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.work-order-fields:disabled :is(input, textarea, select) {
+  cursor: wait;
+  background: var(--muted);
+  opacity: 0.75;
+}
+
+.work-order-submission-status,
+.work-order-refresh-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.work-order-submission-status {
+  min-height: 24px;
+  margin: 10px 0 0;
+}
+
+.work-order-submission-error,
+.work-order-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+}
+
+.work-order-submission-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.work-order-confirmation {
+  margin-bottom: 20px;
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.work-order-submission-error > svg,
+.work-order-confirmation > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.work-order-submission-error p,
+.work-order-confirmation p {
+  margin: 4px 0 0;
+}
+
+.work-order-confirmation-id {
+  font-family: "DM Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
+.work-order-confirmation > div {
+  min-width: 0;
+}
+
+.work-order-dismiss {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+}
+
+.work-order-check-tickets {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.work-order-dismiss:focus-visible,
+.work-order-check-tickets:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
 }
 
 label {

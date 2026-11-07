@@ -1,0 +1,239 @@
+{
+  "runId": "85f6f04d-a710-4d13-9436-e01de8af7fb6",
+  "label": "optimized",
+  "startedAt": "2026-11-07T18:18:54.529Z",
+  "mode": "production-local-api-live-supabase",
+  "node": "v24.11.1",
+  "buildId": "cm47g4zhmlj54m3F6DBtg",
+  "samplesPerEndpoint": 50,
+  "warmupRounds": 5,
+  "concurrency": 1,
+  "scope": "Authenticated successful responses; includes HTTP transport, Supabase user verification, database operations and response-body parsing. Login is setup only.",
+  "partnerDelivery": "Inactive in this isolated backend process; A5 is not exercised.",
+  "limitations": [
+    "Local production backend, not Vercel or ngrok latency.",
+    "Warm p95 is reported separately from first-observed route timings; neither establishes uptime.",
+    "Test requests are soft-archived; their audit history is retained."
+  ],
+  "gitRevision": "cb9cc4b31b991cca1222aceb7d10811c55328f54",
+  "workingTreeDirty": true,
+  "finishedAt": "2026-11-07T18:25:16.854Z",
+  "endpoints": {
+    "POST /work-orders": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 543.43,
+      "p95Ms": 567.96,
+      "p99Ms": 614.17,
+      "minMs": 531.48,
+      "maxMs": 614.17,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 972.49,
+      "components": {
+        "authP95Ms": 282.54,
+        "databaseP95Ms": 281.53
+      }
+    },
+    "GET /work-orders (reporter)": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 547.16,
+      "p95Ms": 566.91,
+      "p99Ms": 571.67,
+      "minMs": 532.34,
+      "maxMs": 571.67,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 583.92,
+      "components": {
+        "authP95Ms": 279.18,
+        "databaseP95Ms": 282.26
+      }
+    },
+    "GET /work-orders (staff)": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 544.87,
+      "p95Ms": 613.82,
+      "p99Ms": 820.13,
+      "minMs": 531.24,
+      "maxMs": 820.13,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 780.04,
+      "components": {
+        "authP95Ms": 281.4,
+        "databaseP95Ms": 320.33
+      }
+    },
+    "GET /work-orders (filtered)": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 543.02,
+      "p95Ms": 576.63,
+      "p99Ms": 639.34,
+      "minMs": 529.68,
+      "maxMs": 639.34,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 553.27,
+      "components": {
+        "authP95Ms": 300.41,
+        "databaseP95Ms": 284.63
+      }
+    },
+    "GET /work-orders/:id": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 540.11,
+      "p95Ms": 593.41,
+      "p99Ms": 645.99,
+      "minMs": 525.57,
+      "maxMs": 645.99,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 573.7,
+      "components": {
+        "authP95Ms": 320.61,
+        "databaseP95Ms": 283.8
+      }
+    },
+    "PATCH /work-orders/:id": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 544.02,
+      "p95Ms": 563.52,
+      "p99Ms": 575.09,
+      "minMs": 531.15,
+      "maxMs": 575.09,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 569.5,
+      "components": {
+        "authP95Ms": 277.23,
+        "databaseP95Ms": 278.76
+      }
+    },
+    "POST /work-orders/:id/assign": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 542.82,
+      "p95Ms": 557.89,
+      "p99Ms": 609.75,
+      "minMs": 530.08,
+      "maxMs": 609.75,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 566.29,
+      "components": {
+        "authP95Ms": 277.75,
+        "databaseP95Ms": 282.98
+      }
+    },
+    "POST /work-orders/:id/in-progress": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 543.99,
+      "p95Ms": 562.64,
+      "p99Ms": 591.65,
+      "minMs": 530.76,
+      "maxMs": 591.65,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 552.95,
+      "components": {
+        "authP95Ms": 285.16,
+        "databaseP95Ms": 281.52
+      }
+    },
+    "POST /work-orders/:id/resolve": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 543.32,
+      "p95Ms": 576.93,
+      "p99Ms": 745.64,
+      "minMs": 532.44,
+      "maxMs": 745.64,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 551.63,
+      "components": {
+        "authP95Ms": 295.25,
+        "databaseP95Ms": 277.72
+      }
+    },
+    "POST /work-orders/:id/close": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 545.51,
+      "p95Ms": 553.39,
+      "p99Ms": 560.79,
+      "minMs": 531.42,
+      "maxMs": 560.79,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 569.66,
+      "components": {
+        "authP95Ms": 278.16,
+        "databaseP95Ms": 275.64
+      }
+    },
+    "GET /work-orders/:id/history": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 544.33,
+      "p95Ms": 562.77,
+      "p99Ms": 586.57,
+      "minMs": 528.06,
+      "maxMs": 586.57,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 576.57,
+      "components": {
+        "authP95Ms": 281.26,
+        "databaseP95Ms": 283.82
+      }
+    },
+    "DELETE /work-orders/:id": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 542.71,
+      "p95Ms": 566.47,
+      "p99Ms": 578.6,
+      "minMs": 529.61,
+      "maxMs": 578.6,
+      "budgetMs": 300,
+      "passed": false,
+      "firstObservedMs": 553.1,
+      "components": {
+        "authP95Ms": 284.12,
+        "databaseP95Ms": 278.92
+      }
+    },
+    "POST /ai/categorize": {
+      "samples": 50,
+      "expectedSamples": 50,
+      "p50Ms": 278.8,
+      "p95Ms": 297.51,
+      "p99Ms": 311.9,
+      "minMs": 265.87,
+      "maxMs": 311.9,
+      "budgetMs": 1500,
+      "passed": true,
+      "firstObservedMs": 287.97,
+      "components": {
+        "authP95Ms": null,
+        "databaseP95Ms": null
+      }
+    }
+  },
+  "failures": [],
+  "cleanup": {
+    "createdRequests": 55,
+    "archivedRequests": 55,
+    "remainingTestRequestIds": [],
+    "hardDeletes": 0
+  },
+  "passed": false
+}

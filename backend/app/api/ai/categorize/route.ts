@@ -1,5 +1,6 @@
 import { requireAuth } from "@/lib/auth";
 import { errorResponse, readJson } from "@/lib/api";
+import { classifyWithinDeadline } from "@/lib/ai-deadline";
 import {
   classifyInputSchema,
   classifyIssueDescription,
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
   if (parsed.response) return parsed.response;
 
   try {
-    const result = await classifyIssueDescription(parsed.data!);
+    const result = await classifyWithinDeadline((signal) => classifyIssueDescription(parsed.data!, { signal }));
     return Response.json({ data: result }, { status: 200 });
   } catch {
     return errorResponse(500, "CLASSIFIER_ERROR", "Classification failed");

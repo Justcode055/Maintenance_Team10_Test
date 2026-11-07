@@ -1,5 +1,4 @@
-import { createRequestSupabaseClient } from "@/lib/supabase-server";
-import { errorResponse, readJson, supabaseErrorResponse } from "@/lib/api";
+import { errorResponse, readJson, supabaseErrorResponse, timedJson } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import {
   updateWorkOrderSchema,
@@ -13,7 +12,8 @@ export async function GET(request: Request, context: RouteContext) {
   if (auth.response) return auth.response;
 
   const { id } = await context.params;
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase
     .from("work_orders")
     .select("*")
@@ -21,7 +21,7 @@ export async function GET(request: Request, context: RouteContext) {
     .single();
 
   if (error) return supabaseErrorResponse(error);
-  return Response.json(data);
+  return timedJson(data, auth.context!, databaseStartedAt);
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
@@ -32,7 +32,8 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (parsed.response) return parsed.response;
 
   const { id } = await context.params;
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase
     .from("work_orders")
     .update(parsed.data!)
@@ -42,7 +43,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     .single();
 
   if (error) return supabaseErrorResponse(error);
-  return Response.json(data);
+  return timedJson(data, auth.context!, databaseStartedAt);
 }
 
 export async function DELETE(request: Request, context: RouteContext) {
@@ -50,7 +51,8 @@ export async function DELETE(request: Request, context: RouteContext) {
   if (auth.response) return auth.response;
 
   const { id } = await context.params;
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase
     .from("work_orders")
     .update({ archived_at: new Date().toISOString() })
@@ -60,5 +62,5 @@ export async function DELETE(request: Request, context: RouteContext) {
     .single();
 
   if (error) return supabaseErrorResponse(error);
-  return Response.json(data);
+  return timedJson(data, auth.context!, databaseStartedAt);
 }

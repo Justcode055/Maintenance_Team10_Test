@@ -1,0 +1,61 @@
+.compact-request-card { padding: 22px 24px; }
+.compact-request-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.compact-request-header > div:first-child { min-width: 0; }
+.compact-request-header h2 { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 650; letter-spacing: -.35px; overflow-wrap: anywhere; }
+.compact-request-tools { display: flex; align-items: center; flex-shrink: 0; gap: 24px; }
+.compact-request-tools .overview-link { padding: 0; min-height: 34px; color: #333641; font-size: 14px; }
+.compact-request-tools .overview-link:hover { color: var(--primary); }
+.compact-request-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px 24px; margin-top: 14px; color: #686b77; font-size: 13px; line-height: 1.6; }
+.compact-request-meta > div { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 20px; min-width: 0; }
+.compact-request-meta > div > span:first-child { display: inline-flex; align-items: flex-start; gap: 8px; }
+.compact-request-meta svg { flex-shrink: 0; margin-top: 2px; }
+.compact-request-category::before { content: "·"; margin-right: 20px; color: #8b8d97; }
+.compact-request-target { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.compact-request-target.is-overdue { color: #9d5921; }
+.compact-request-target.is-finished { color: #2d8453; }
+.repair-progress { --progress-color: #b71328; display: flex; list-style: none; margin: 24px 0 8px; padding: 0; }
+.repair-progress > li { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center; }
+.repair-progress-wire { position: absolute; top: 12px; left: 50%; width: 100%; height: 2px; overflow: hidden; background: #d9d9e1; }
+.repair-progress-wire > span { display: block; width: 100%; height: 100%; background: var(--progress-color); transform-origin: left; transition: transform 420ms ease, background-color 350ms ease; }
+.repair-progress-dot { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 26px; height: 26px; border: 2px solid #cbccd4; border-radius: 50%; background: #fff; color: #fff; transition: background-color 350ms ease, border-color 350ms ease, box-shadow 350ms ease; }
+.repair-progress .is-complete .repair-progress-dot { border-color: var(--progress-color); background: var(--progress-color); }
+.repair-progress .is-current:not(.is-complete) .repair-progress-dot { border-color: var(--progress-color); box-shadow: 0 0 0 5px #b7132810; }
+.repair-progress-dot > span { width: 12px; height: 12px; border-radius: 50%; background: var(--progress-color); }
+.repair-progress-label { font-size: 12px; line-height: 1.4; color: #7a7d88; }
+.repair-progress .is-complete .repair-progress-label { color: #414550; }
+.repair-progress .is-current .repair-progress-label { color: var(--progress-color); font-weight: 600; }
+.repair-progress .just-advanced .repair-progress-dot { animation: repair-step-arrive 600ms ease both; }
+.repair-progress.is-closed { --progress-color: #2d8a57; }
+.repair-progress.is-closed .repair-progress-dot { box-shadow: none; }
+.compact-request-card > .repair-progress { margin: 20px 0 3px; padding-top: 22px; border-top: 1px solid #ececf1; }
+.compact-request-card .request-status-live:empty { display: none; }
+.compact-request-card .request-row-actions { margin-top: 14px; }
+.overview-request > .repair-progress { margin-bottom: 2px; }
+.request-detail-summary dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 20px; margin: 14px 0 20px; padding: 16px; border-radius: 8px; background: #f7f7f8; }
+.request-detail-summary dt { margin: 0 0 4px; color: #747783; font-size: 11px; }
+.request-detail-summary dd { margin: 0; color: #414550; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.request-detail-summary .request-detail-id { grid-column: 1 / -1; }
+.request-detail-summary code { font-family: inherit; font-size: 12px; }
+.request-detail-summary > p { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+@keyframes repair-step-arrive { 0% { transform: scale(.86); } 55% { transform: scale(1.16); } 100% { transform: scale(1); } }
+@media (max-width: 760px) {
+  .compact-request-card { padding: 18px 15px; }
+  .compact-request-header { flex-wrap: wrap; gap: 10px; }
+  .compact-request-header > div:first-child { flex-basis: 100%; }
+  .compact-request-header h2 { font-size: 18px; }
+  .compact-request-tools { width: 100%; justify-content: space-between; gap: 12px; }
+  .compact-request-tools .overview-link { min-height: 36px; font-size: 13px; }
+  .compact-request-meta { flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: 12px; }
+  .compact-request-meta > div { flex-basis: 100%; gap: 6px 12px; }
+  .compact-request-category::before { margin-right: 12px; }
+  .repair-progress > li { gap: 8px; }
+  .repair-progress-label { font-size: 10px; }
+  .repair-progress-dot { width: 24px; height: 24px; }
+  .repair-progress-wire { top: 11px; }
+  .repair-progress-dot > span { width: 10px; height: 10px; }
+  .compact-request-card > .repair-progress { padding-top: 19px; margin-top: 18px; }
+  .request-detail-summary dl { gap: 12px; padding: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .repair-progress *, .repair-progress *::before, .repair-progress *::after { animation: none !important; transition: none !important; }
+}

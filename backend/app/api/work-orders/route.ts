@@ -1,5 +1,4 @@
-import { createRequestSupabaseClient } from "@/lib/supabase-server";
-import { errorResponse, readJson, supabaseErrorResponse } from "@/lib/api";
+import { errorResponse, readJson, supabaseErrorResponse, timedJson } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import {
   createWorkOrderSchema,
@@ -14,7 +13,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const filters = listWorkOrdersQuerySchema.safeParse(Object.fromEntries(url.searchParams));
   if (!filters.success) return errorResponse(400, "INVALID_FILTER", "Work-order filters are invalid");
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
   let query = supabase
     .from("work_orders")
     .select("*")
@@ -27,9 +26,10 @@ export async function GET(request: Request) {
   if (status) query = query.eq("status", status);
   if (locationId) query = query.eq("location_id", locationId);
 
+  const databaseStartedAt = performance.now();
   const { data, error } = await query;
   if (error) return supabaseErrorResponse(error);
-  return Response.json({ data });
+  return timedJson({ data }, auth.context!, databaseStartedAt);
 }
 
 export async function POST(request: Request) {
@@ -39,7 +39,8 @@ export async function POST(request: Request) {
   const parsed = await readJson<CreateWorkOrderInput>(request, createWorkOrderSchema);
   if (parsed.response) return parsed.response;
 
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase.rpc("create_work_order", {
     p_reporter_id: auth.context!.user.id,
     p_location_id: parsed.data!.location_id,
@@ -49,5 +50,5 @@ export async function POST(request: Request) {
   });
 
   if (error) return supabaseErrorResponse(error);
-  return Response.json(data, { status: 201 });
+  return timedJson(data, auth.context!, databaseStartedAt, { status: 201 });
 }

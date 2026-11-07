@@ -1,5 +1,4 @@
-import { createRequestSupabaseClient } from "@/lib/supabase-server";
-import { supabaseErrorResponse } from "@/lib/api";
+import { supabaseErrorResponse, timedJson } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import { dispatchStatusChangedWithoutBlocking } from "@/lib/team12-integration";
 
@@ -12,7 +11,8 @@ export async function POST(request: Request, context: RouteContext) {
   if (auth.response) return auth.response;
 
   const { id } = await context.params;
-  const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
+  const supabase = auth.context!.supabase;
+  const databaseStartedAt = performance.now();
   const { data, error } = await supabase.rpc("start_work_order", {
     p_work_order_id: id,
   });
@@ -24,5 +24,5 @@ export async function POST(request: Request, context: RouteContext) {
     toStatus: "IN_PROGRESS",
     activityId: (data as any)?.activity_id,
   });
-  return Response.json(data);
+  return timedJson(data, auth.context!, databaseStartedAt);
 }

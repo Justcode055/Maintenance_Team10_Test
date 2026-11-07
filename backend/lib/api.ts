@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// Durations only: never expose identities, tokens, SQL or configuration in timing headers.
+export function timedJson(value: unknown, auth: { authDurationMs: number }, databaseStartedAt: number, init?: ResponseInit) {
+  const databaseMs = performance.now() - databaseStartedAt;
+  const response = Response.json(value, init);
+  response.headers.set("Server-Timing", `auth;dur=${auth.authDurationMs.toFixed(2)}, database;dur=${databaseMs.toFixed(2)}`);
+  return response;
+}
+
 export function errorResponse(
   status: number,
   code: string,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { affirmedMatches, hasElectricalWaterExposure, independentEvidence, issueClauses, normalizeIssueText, type KeywordMatch } from "./classifier-matching.ts";
 
 /**
  * AI Decision Capability & Issue Categorizer — Mae Fah Luang University (MFU) Edition
@@ -12,10 +13,10 @@ import { z } from "zod";
  */
 
 export const MFU_BUILDINGS = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "S1 Science Laboratory Wing", defaultRoom: "Lab 204", keywords: ["s1", "science", "lab", "laboratory", "chemistry", "biology"] },
-  { id: "11111111-1111-1111-1111-111111111111", name: "C1 / C2 Lecture Complex", defaultRoom: "Room 204", keywords: ["c1", "c2", "lecture", "classroom", "hallway", "c-1", "c-2"] },
-  { id: "44444444-4444-4444-8444-444444444444", name: "E1 School of Information Tech", defaultRoom: "Studio 305", keywords: ["e1", "e-1", "it school", "studio", "computer lab", "engineering"] },
-  { id: "33333333-3333-4333-8333-333333333333", name: "AD1 Administration Building", defaultRoom: "Admin 001", keywords: ["ad1", "admin", "administration", "office", "bursar"] },
+  { id: "11111111-1111-4111-8111-111111111111", name: "S1 Science Laboratory Wing", keywords: ["s1", "s-1", "science laboratory wing"] },
+  { id: "11111111-1111-1111-1111-111111111111", name: "C1 / C2 Lecture Complex", keywords: ["c1", "c2", "c-1", "c-2", "lecture complex"] },
+  { id: "44444444-4444-4444-8444-444444444444", name: "E1 School of Information Tech", keywords: ["e1", "e-1", "school of information tech", "school of information technology"] },
+  { id: "33333333-3333-4333-8333-333333333333", name: "AD1 Administration Building", keywords: ["ad1", "ad-1", "administration building"] },
 ] as const;
 
 export const KNOWN_CATEGORIES = {
@@ -29,7 +30,7 @@ export const KNOWN_CATEGORIES = {
       "flush", "clog", "clogged", "bathroom", "restroom", "basin", "sewer", "plumbing",
       // MFU Specific Plumbing
       "bidet", "bidet sprayer", "spray hose", "hose leak", "water heater", "shower heater",
-      "no hot water", "water heater not working", "hair in drain", "shower drain", "slow drain",
+      "no hot water", "no water", "water not flowing", "water heater not working", "hair in drain", "shower drain", "slow drain",
       "red water", "muddy water", "turbid water", "dirty tap water", "water pressure low",
       "low water pressure", "toilet overflowing", "tank leaking", "faucet dripping",
       // Multilingual (Thai)
@@ -43,9 +44,9 @@ export const KNOWN_CATEGORIES = {
     keywords: [
       // Standard Electrical
       "outlet", "socket", "spark", "breaker", "power", "light", "bulb", "flickering",
-      "switch", "wiring", "voltage", "blackout", "circuit", "electricity", "plug", "short", "fuse",
+      "switch", "switchboard", "wire", "wiring", "voltage", "blackout", "circuit", "electricity", "plug", "short", "fuse",
       // MFU Specific Electrical
-      "breaker tripped", "breaker trip", "smart meter", "electric meter trip", "power cut",
+      "breaker tripped", "breaker trip", "smart meter", "electric meter trip", "power cut", "no power",
       "thunderstorm blackout", "lightning power surge", "surge", "fluorescent ballast", "buzzing light",
       "kettle tripped", "hair dryer tripped power", "loose wall socket", "burnt socket",
       "black scorch mark", "wall plug loose", "lan port loose", "power outage in dorm",
@@ -63,7 +64,7 @@ export const KNOWN_CATEGORIES = {
       "temperature", "ventilation", "fan", "cold", "hot", "vent", "chiller", "airflow", "hvac", "thermostat",
       // MFU Specific HVAC
       "ac leaking water", "ac water dripping", "water dripping from ac", "ac dripping on bed",
-      "ac blowing warm air", "ac not cold", "ac warm", "dirty air filter", "ice on ac coil",
+      "ac blowing warm air", "ac not cold", "ac not cooling", "air conditioner not cooling", "no airflow", "ac warm", "dirty air filter", "ice on ac coil",
       "musty smell", "mold smell in ac", "mildew smell", "ceiling fan noisy", "fan squeaking",
       "ceiling fan wobbling", "fan stuck speed", "ac remote control broken", "remote dead", "humid",
       // Multilingual (Thai)
@@ -85,7 +86,7 @@ export const KNOWN_CATEGORIES = {
       "slippery walkway", "slippery moss", "slippery pathway in rain", "fire exit jammed",
       "hanging wires", "live electrical", "switchboard hazard",
       // Multilingual (Thai)
-      "อันตราย", "งู", "ทางหนีไฟ", "ไฟไหม้", "ประตูพัง"
+      "อันตราย", "งู", "ทางหนีไฟ", "ไฟไหม้", "ควัน", "แก๊สรั่ว", "ก๊าซรั่ว", "ประตูพัง"
     ],
   },
 } as const;
@@ -116,6 +117,9 @@ export type ClassificationResult = {
 
 const CONFIDENCE_REVIEW_THRESHOLD = 0.40;
 const MAX_LATENCY_MS = 1500;
+const AMBIGUITY_MARGIN = 0.15;
+const WEAK_TERMS = new Set(["ac", "fan", "cold", "hot", "temperature", "heating", "cooling", "vent", "water", "pipe", "sink", "toilet", "drain", "faucet", "flush", "bathroom", "restroom", "basin", "light", "bulb", "outlet", "socket", "power", "switch", "plug", "alarm", "exit", "chemical", "plumbing", "electricity", "safety", "hvac", "ท่อ", "แอร์", "พัดลม", "ร้อน"]);
+const FAULT_TERMS = ["broken", "damaged", "faulty", "flickering", "leak", "drip", "clog", "overflow", "overflowing", "not working", "not cooling", "not cold", "isn't working", "isn't cooling", "doesn't work", "doesn't cool", "no power", "no water", "won't turn off", "won't turn on", "cannot lock", "เสีย", "พัง", "รั่ว", "ตัน", "ไม่เย็น", "ไม่ไหล"];
 
 // Prompt injection patterns to intercept (Lab 1 / Threat T-01 & Lab 2 Golden Dataset)
 const INJECTION_PATTERNS = [
@@ -134,12 +138,17 @@ const INJECTION_PATTERNS = [
  */
 export async function classifyIssueDescription(
   input: ClassifyInput,
+  options: { signal?: AbortSignal; budgetMs?: number } = {},
 ): Promise<ClassificationResult> {
   const startTime = performance.now();
-  const textToAnalyze = `${input.title ?? ""} ${input.description}`.toLowerCase();
+  const budgetMs = options.budgetMs ?? MAX_LATENCY_MS;
+  const timedOut = () => options.signal?.aborted || performance.now() - startTime >= budgetMs;
+  const timeoutResult = (): ClassificationResult => ({ fallbackToManual: true, decision_method: "Deterministic-Fallback", execution_time_ms: Math.round((performance.now() - startTime) * 100) / 100, reason: "NFR_TIMEOUT: Category suggestion exceeded its time budget" });
+  const textToAnalyze = normalizeIssueText(`${input.title ?? ""}.\n${input.description}`);
 
   // 1. Threat T-01 Defense: Intercept prompt injection attacks
   for (const pattern of INJECTION_PATTERNS) {
+    if (timedOut()) return timeoutResult();
     if (pattern.test(input.description) || (input.title && pattern.test(input.title))) {
       const elapsed = Math.round((performance.now() - startTime) * 100) / 100;
       return {
@@ -151,103 +160,65 @@ export async function classifyIssueDescription(
     }
   }
 
-  // 2. MFU Building Detection Hint
-  let detectedBuilding: { id: string; name: string } | undefined = undefined;
-  for (const bld of MFU_BUILDINGS) {
-    for (const kw of bld.keywords) {
-      if (textToAnalyze.includes(kw.toLowerCase()) || new RegExp(`\\b${kw}\\b`, "i").test(textToAnalyze)) {
-        detectedBuilding = { id: bld.id, name: bld.name };
-        break;
-      }
-    }
-    if (detectedBuilding) break;
+  // A unique explicit building is a hint only. Generic words never imply a room.
+  const buildings = MFU_BUILDINGS.filter((building) => affirmedMatches(textToAnalyze, building.keywords, timedOut, "building").length > 0);
+  const detectedBuilding = buildings.length === 1 ? { id: buildings[0].id, name: buildings[0].name } : undefined;
+  const scores: Record<CategoryName, number> = { Plumbing: 0, Electrical: 0, HVAC: 0, Safety: 0 };
+  const evidence: Record<CategoryName, KeywordMatch[]> = { Plumbing: [], Electrical: [], HVAC: [], Safety: [] };
+  const faults = affirmedMatches(textToAnalyze, FAULT_TERMS, timedOut);
+
+  for (const [name, category] of Object.entries(KNOWN_CATEGORIES) as [CategoryName, typeof KNOWN_CATEGORIES[CategoryName]][]) {
+    if (timedOut()) return timeoutResult();
+    evidence[name] = independentEvidence(affirmedMatches(textToAnalyze, category.keywords, timedOut));
+    // Count independent evidence once: a phrase and its component words are not
+    // separate votes, and repeating the same keyword does not boost confidence.
+    scores[name] = evidence[name].reduce((sum, match) => sum + (/\s|-/.test(match.term) ? 3 : 1), 0);
   }
 
-  // 3. Keyword Grounding & Frequency Scoring (Decision Core)
-  const scores: Record<CategoryName, number> = {
-    Plumbing: 0,
-    Electrical: 0,
-    HVAC: 0,
-    Safety: 0,
-  };
+  const hazardous = affirmedMatches(textToAnalyze, ["fire", "smoke", "gas", "snake", "emergency", "hanging wires", "live electrical", "live wire", "ไฟไหม้", "ควัน", "แก๊สรั่ว", "ก๊าซรั่ว", "งู", "ทางหนีไฟ"], timedOut).length > 0;
+  const safetyPriority = hazardous || hasElectricalWaterExposure(textToAnalyze, timedOut);
+  if (safetyPriority) {
+    // Explicit hazards take priority. Unrelated plumbing and electrical reports
+    // alone must not manufacture a water/electrical safety conflict.
+    scores.Safety = Object.values(scores).reduce((sum, score) => sum + score, 0) + 4;
+  }
+  if (timedOut()) return timeoutResult();
 
-  let totalMatches = 0;
-  for (const [catName, catData] of Object.entries(KNOWN_CATEGORIES) as [CategoryName, typeof KNOWN_CATEGORIES[CategoryName]][]) {
-    for (const kw of catData.keywords) {
-      const isMatch = textToAnalyze.includes(kw.toLowerCase()) || new RegExp(`\\b${kw}\\b`, "i").test(textToAnalyze);
-      if (isMatch) {
-        // Multi-word phrase matches receive higher weight for accuracy
-        const weight = kw.includes(" ") ? 2 : 1;
-        scores[catName] += weight;
-        totalMatches += weight;
-      }
-    }
+  const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
+  const ranked = (Object.entries(scores) as [CategoryName, number][]).sort((a, b) => b[1] - a[1]);
+  const [bestCategory, maxScore] = ranked[0];
+  // This legacy field is a keyword-score share, not a calibrated probability.
+  const confidence = total ? Math.round(maxScore / total * 100) / 100 : undefined;
+  const fallback = (reason: string): ClassificationResult => ({
+    fallbackToManual: true, decision_method: "Deterministic-Fallback",
+    execution_time_ms: Math.round((performance.now() - startTime) * 100) / 100,
+    ...(confidence !== undefined ? { confidence } : {}), reason, detected_building: detectedBuilding,
+  });
+  if (!total) return fallback("AMBIGUOUS_OR_UNMATCHED: No affirmative facility evidence matched");
+  if (maxScore === ranked[1][1] || (maxScore - ranked[1][1]) / total < AMBIGUITY_MARGIN) {
+    return fallback("AMBIGUOUS_CATEGORIES: Multiple categories need manual review");
   }
 
-  // Priority conflict resolution: If water is near electrical/wires or live hazard, prioritize Safety
-  if (scores.Plumbing > 0 && scores.Electrical > 0) {
-    scores.Safety += 4;
-    totalMatches += 4;
+  const strongEvidence = evidence[bestCategory].some((match) => !WEAK_TERMS.has(match.term));
+  const clauses = issueClauses(textToAnalyze);
+  const nearbyFault = evidence[bestCategory].some((match) => faults.some((fault) => {
+    if (fault.clause !== match.clause) return false;
+    // Avoid borrowing the fault in 'broken floor tile near the AC'.
+    const gap = clauses[match.clause].slice(Math.min(match.end, fault.end), Math.max(match.start, fault.start));
+    return gap.length <= 45 && !/\b(?:near|beside|around|with|next to|without)\b/u.test(gap);
+  }));
+  if (!(bestCategory === "Safety" && safetyPriority) && !strongEvidence && !nearbyFault) {
+    return fallback("INSUFFICIENT_EVIDENCE: A facility name alone does not describe a fault");
   }
-
-  // 4. Fallback check for zero matches
-  if (totalMatches === 0) {
-    const elapsed = Math.round((performance.now() - startTime) * 100) / 100;
-    return {
-      fallbackToManual: true,
-      decision_method: "Deterministic-Fallback",
-      execution_time_ms: elapsed,
-      reason: "AMBIGUOUS_OR_UNMATCHED: No MFU facility keywords matched",
-      detected_building: detectedBuilding,
-    };
+  if (confidence === undefined || confidence < CONFIDENCE_REVIEW_THRESHOLD) {
+    return fallback("LOW_CONFIDENCE: Please choose the category manually");
   }
-
-  // 5. Calculate Normalized Probabilities & Best Candidate
-  let bestCategory: CategoryName = "Plumbing";
-  let maxScore = -1;
-
-  for (const [catName, count] of Object.entries(scores) as [CategoryName, number][]) {
-    if (count > maxScore) {
-      maxScore = count;
-      bestCategory = catName;
-    }
-  }
-
-  const confidence = Math.round((maxScore / totalMatches) * 100) / 100;
-  const elapsed = Math.round((performance.now() - startTime) * 100) / 100;
-
-  // 6. NFR-01 SLA Latency Circuit Breaker (Timeout check)
-  if (elapsed > MAX_LATENCY_MS) {
-    return {
-      fallbackToManual: true,
-      decision_method: "Deterministic-Fallback",
-      execution_time_ms: elapsed,
-      reason: "NFR_TIMEOUT: Decision exceeded 1500 ms SLA limit",
-      detected_building: detectedBuilding,
-    };
-  }
-
-  // 7. Confidence Guardrail check (Threshold = 0.40)
-  if (confidence < CONFIDENCE_REVIEW_THRESHOLD) {
-    return {
-      fallbackToManual: true,
-      confidence,
-      decision_method: "Deterministic-Fallback",
-      execution_time_ms: elapsed,
-      reason: `LOW_CONFIDENCE: Confidence ${confidence} is below review threshold ${CONFIDENCE_REVIEW_THRESHOLD}`,
-      detected_building: detectedBuilding,
-    };
-  }
-
-  const catMeta = KNOWN_CATEGORIES[bestCategory];
+  if (timedOut()) return timeoutResult();
+  const category = KNOWN_CATEGORIES[bestCategory];
   return {
-    fallbackToManual: false,
-    category_id: catMeta.id,
-    category_name: bestCategory,
-    sla_hours: catMeta.sla_hours,
-    confidence,
-    decision_method: "Laya-Model",
-    execution_time_ms: elapsed,
+    fallbackToManual: false, category_id: category.id, category_name: bestCategory,
+    sla_hours: category.sla_hours, confidence, decision_method: "Laya-Model",
+    execution_time_ms: Math.round((performance.now() - startTime) * 100) / 100,
     detected_building: detectedBuilding,
   };
 }

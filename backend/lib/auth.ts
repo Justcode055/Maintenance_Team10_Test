@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { User } from "@supabase/supabase-js";
+import type { User, SupabaseClient } from "@supabase/supabase-js";
 import { createRequestSupabaseClient } from "@/lib/supabase-server";
 import { errorResponse } from "@/lib/api";
 import { resolveTrustedRole, secretsMatch } from "@/lib/security";
@@ -8,6 +8,8 @@ import { resolveTrustedRole, secretsMatch } from "@/lib/security";
 export type AuthContext = {
   user: User;
   role: "reporter" | "staff";
+  supabase: SupabaseClient;
+  authDurationMs: number;
 };
 
 export async function requireAuth(
@@ -22,6 +24,7 @@ export async function requireAuth(
   }
 
   try {
+    const authStartedAt = performance.now();
     const supabase = createRequestSupabaseClient(authorization);
     const { data, error } = await supabase.auth.getUser();
 
@@ -38,7 +41,7 @@ export async function requireAuth(
       };
     }
 
-    return { context: { user: data.user, role } };
+    return { context: { user: data.user, role, supabase, authDurationMs: performance.now() - authStartedAt } };
   } catch {
     return { response: errorResponse(503, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable") };
   }

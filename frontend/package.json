@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "typecheck": "tsc --noEmit --incremental false"
+    "typecheck": "tsc --noEmit --incremental false",
+    "test:demo": "node --experimental-strip-types --test tests/local-demo.test.mjs",
+    "test:ux": "node --experimental-strip-types --test tests/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

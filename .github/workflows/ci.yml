@@ -68,6 +68,11 @@ jobs:
       - name: Security regression tests
         run: npm run test:security --prefix backend
 
+      - name: Performance deadline and percentile tests
+        run: |
+          npm run test:performance --prefix backend
+          npm run test:ux --prefix frontend
+
       - name: Production builds
         run: |
           npm run build --prefix backend

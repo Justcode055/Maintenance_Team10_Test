@@ -7,11 +7,13 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/platform-suite.test.ts",
     "test:unit": "node --experimental-strip-types --test tests/unit-suite.test.ts",
-    "test:ai-eval": "node --experimental-strip-types --test tests/golden-dataset.test.ts",
+    "test:ai-eval": "node --experimental-strip-types --test tests/golden-dataset.test.ts tests/classifier-accuracy.test.ts",
     "test:partner": "node tests/probe-endpoints.mjs",
     "lint": "next lint",
-    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/routes-security.test.mjs",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/routes-security.test.mjs tests/dashboard.test.ts",
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "test:performance": "node --experimental-strip-types --test tests/performance.test.ts tests/performance-stats.test.mjs",
+    "perf:api": "node scripts/benchmark-api.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",

@@ -171,6 +171,14 @@ with `X-Webhook-Secret` and `X-Event-ID`.
 
 ## Validation
 
+### Category suggestions and location hints
+
+Classification uses bounded keyword rules with Latin word boundaries, common inflections, English/Thai negation checks and independent phrase evidence. Repeated/overlapping keywords do not inflate scores. Ties, close scores and insufficient evidence fall back to manual selection; explicit hazards and affirmative water/electrical exposure retain Safety priority. The legacy `confidence` field is a keyword-score share, not a calibrated accuracy probability. These heuristics do not establish accuracy for every natural-language report.
+
+`detected_building` is an optional hint from a unique explicit known building code or name. Generic terms such as lab/office, unsupported codes and conflicting buildings do not imply a building or default room. This result never creates or edits a location. The existing prompt-defense interceptors and 1,500 ms deadline remain in place.
+
+`npm run test:ai-eval` runs the original golden dataset plus the accuracy/location regression cases.
+
 ```powershell
 npm run typecheck
 npm run build
