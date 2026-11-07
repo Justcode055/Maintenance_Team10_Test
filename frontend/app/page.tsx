@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 import {
   Wrench,
@@ -17,11 +17,6 @@ import {
   Check,
   FileText,
 } from "lucide-react";
-
-const accountPasswords: Record<string, string> = {
-  "reporter1@gmail.com": "Reporter1",
-  "staff1@gmail.com": "Staff1",
-};
 
 const STAGES = ["OPEN", "ASSIGNED", "IN_PROGRESS", "RESOLVED", "CLOSED"] as const;
 type WorkOrderStatus = (typeof STAGES)[number];
@@ -40,7 +35,7 @@ interface CategoryItem {
 
 interface WorkOrder {
   id: string;
-  reporter_id: string;
+  reporter_id: string | null;
   location_id: string;
   category_id: string;
   title: string;
@@ -54,7 +49,7 @@ interface WorkOrder {
 interface StatusHistoryItem {
   id: string;
   work_order_id: string;
-  changed_by: string;
+  changed_by: string | null;
   from_status: WorkOrderStatus | null;
   to_status: WorkOrderStatus;
   note?: string | null;
@@ -73,7 +68,13 @@ export default function MaintenanceApp() {
   const [role, setRole] = useState<"reporter" | "staff">("reporter");
   const [token, setToken] = useState<string>("");
   const [currentUserId, setCurrentUserId] = useState<string>("");
-  const [authStatus, setAuthStatus] = useState<string>("Connecting...");
+  const [authStatus, setAuthStatus] = useState<string>("Sign in to continue");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [currentEmail, setCurrentEmail] = useState("");
+  const sessionUserId = useRef<string | null>(null);
+  const activeAccessToken = useRef("");
 
   // Data collections
   const [locations, setLocations] = useState<LocationItem[]>([]);
@@ -131,41 +132,73 @@ export default function MaintenanceApp() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api";
 
-  // Login handler
-  const switchRole = useCallback(async (targetRole: "reporter" | "staff", silent = false) => {
-    setAuthStatus(`Authenticating as ${targetRole}...`);
-    const email = targetRole === "reporter" ? "reporter1@gmail.com" : "staff1@gmail.com";
-    const password = accountPasswords[email];
-
+  async function signIn(event: React.FormEvent) {
+    event.preventDefault();
+    setLoginBusy(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-      if (error || !data.session) {
-        setAuthStatus(`Sign-in failed: ${error?.message}`);
-        showToast("error", "Sign-in Failed", error?.message ?? "Authentication failed");
-        return;
+      const { data, error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
+      if (error || !data.session) throw new Error(error?.message ?? "Sign-in failed");
+      const assignedRole = data.user.app_metadata?.role;
+      if (assignedRole !== "staff" && assignedRole !== "reporter") {
+        await supabase.auth.signOut({ scope: "local" });
+        throw new Error("Ask your administrator to assign your account a maintenance role.");
       }
-
-      setToken(data.session.access_token);
-      setCurrentUserId(data.user.id);
-      setRole(targetRole);
-      setActiveTab((currentTab) => (targetRole === "reporter" && currentTab === "dispatch" ? "tracker" : currentTab));
-      setAuthStatus(`Connected as ${email}`);
-      if (!silent) {
-        showToast("info", "Role Active", `Switched to ${targetRole === "reporter" ? "Student / Reporter" : "Maintenance Staff"}`);
-      }
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Unknown error";
-      setAuthStatus(`Auth error: ${errMsg}`);
-      showToast("error", "Auth Error", errMsg);
+    } catch (error) {
+      setAuthStatus(error instanceof Error ? error.message : "Sign-in failed");
+    } finally {
+      setLoginPassword("");
+      setLoginBusy(false);
     }
-  }, [showToast]);
+  }
 
-  // Initialize Auth on mount only
+  async function signOut() {
+    await createBrowserSupabaseClient().auth.signOut({ scope: "local" });
+  }
+
   useEffect(() => {
-    switchRole("reporter", true);
-  }, [switchRole]);
+    const supabase = createBrowserSupabaseClient();
+    let active = true;
+    const applySession = (session: import("@supabase/supabase-js").Session | null) => {
+      if (!active) return;
+      const assignedRole = session?.user.app_metadata?.role;
+      activeAccessToken.current = session && (assignedRole === "staff" || assignedRole === "reporter") ? session.access_token : "";
+      const nextUserId = session?.user.id ?? null;
+      if (sessionUserId.current !== nextUserId) {
+        setWorkOrders([]);
+        setCategories([]);
+        setLocations([]);
+        setReportTitle("");
+        setReportDesc("");
+        setReportLocation("");
+        setReportCategory("");
+        setAiResult(null);
+        setLoadingOrders(false);
+        setAiLoading(false);
+        setSubmittingOrder(false);
+        setHistoryModal({ open: false, items: [], loading: false });
+        setResolveModal({ open: false, workOrderId: "", notes: "", loading: false });
+        setToasts([]);
+        setActiveTab("tracker");
+        sessionUserId.current = nextUserId;
+      }
+      if (session && (assignedRole === "staff" || assignedRole === "reporter")) {
+        setToken(session.access_token);
+        setCurrentUserId(session.user.id);
+        setCurrentEmail(session.user.email ?? "");
+        setRole(assignedRole);
+        setAuthStatus(`Connected as ${session.user.email ?? "campus user"}`);
+      } else {
+        setToken("");
+        setCurrentUserId("");
+        setCurrentEmail("");
+        setRole("reporter");
+        setAuthStatus(session ? "Ask your administrator to assign your account a maintenance role." : "Sign in to continue");
+      }
+    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
+    return () => { active = false; subscription.unsubscribe(); };
+  }, []);
 
   // Load auxiliary data when token is available
   const loadMetadata = useCallback(async (jwt: string) => {
@@ -175,6 +208,7 @@ export default function MaintenanceApp() {
         supabase.from("locations").select("*"),
         supabase.from("categories").select("*"),
       ]);
+      if (activeAccessToken.current !== jwt) return;
 
       if (locRes.data && locRes.data.length > 0) {
         const mfuLabels: Record<string, { building: string; floor_room: string }> = {
@@ -212,13 +246,14 @@ export default function MaintenanceApp() {
         return;
       }
       const json = await res.json();
+      if (activeAccessToken.current !== jwt) return;
       if (json.data) {
         setWorkOrders(json.data);
       }
     } catch (e) {
       console.error("Failed to load work orders:", e);
     } finally {
-      setLoadingOrders(false);
+      if (activeAccessToken.current === jwt) setLoadingOrders(false);
     }
   }, [apiBase]);
 
@@ -250,6 +285,7 @@ export default function MaintenanceApp() {
       });
 
       const json = await res.json();
+      if (activeAccessToken.current !== token) return;
       const result = json.data;
 
       if (result) {
@@ -278,6 +314,7 @@ export default function MaintenanceApp() {
         }
       }
     } catch {
+      if (activeAccessToken.current !== token) return;
       setAiResult({
         success: false,
         fallback: true,
@@ -285,7 +322,7 @@ export default function MaintenanceApp() {
       });
       showToast("error", "AI Request Failed", "Network latency exceeded SLA");
     } finally {
-      setAiLoading(false);
+      if (activeAccessToken.current === token) setAiLoading(false);
     }
   }
 
@@ -314,6 +351,7 @@ export default function MaintenanceApp() {
       });
 
       const data = await res.json();
+      if (activeAccessToken.current !== token) return;
       if (res.ok && data.id) {
         showToast("success", "Work Order Submitted", "Ticket created and dispatched to campus maintenance queue.");
         setReportTitle("");
@@ -325,9 +363,10 @@ export default function MaintenanceApp() {
         showToast("error", "Submission Failed", data.error?.message ?? JSON.stringify(data));
       }
     } catch (err) {
+      if (activeAccessToken.current !== token) return;
       showToast("error", "Submission Error", err instanceof Error ? err.message : "Network error");
     } finally {
-      setSubmittingOrder(false);
+      if (activeAccessToken.current === token) setSubmittingOrder(false);
     }
   }
 
@@ -344,6 +383,7 @@ export default function MaintenanceApp() {
       });
 
       const data = await res.json();
+      if (activeAccessToken.current !== token) return;
       if (res.ok) {
         showToast("success", "Status Updated", "Work order transition recorded successfully.");
         await loadWorkOrders(token);
@@ -351,6 +391,7 @@ export default function MaintenanceApp() {
         showToast("error", "Action Failed", `HTTP ${res.status}: ${data.error?.message ?? "Operation rejected"}`);
       }
     } catch (err) {
+      if (activeAccessToken.current !== token) return;
       showToast("error", "Request Error", err instanceof Error ? err.message : "Unknown error");
     }
   }
@@ -363,14 +404,29 @@ export default function MaintenanceApp() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
+      if (activeAccessToken.current !== token) return;
       setHistoryModal({ open: true, workOrderTitle: wo.title, items: json.data ?? [], loading: false });
     } catch {
+      if (activeAccessToken.current !== token) return;
       setHistoryModal({ open: true, workOrderTitle: wo.title, items: [], loading: false });
     }
   }
 
   const filteredOrders = workOrders.filter((wo) =>
     filterStatus === "ALL" ? true : wo.status === filterStatus,
+  );
+
+  if (!token) return (
+    <main className="app-shell">
+      <h1>Facility Maintenance Hub</h1>
+      <p>Sign in with your campus maintenance account.</p>
+      <form onSubmit={signIn} className="report-form" style={{ maxWidth: "28rem", display: "grid", gap: "1rem", marginTop: "1.5rem" }}>
+        <label>Email<input type="email" autoComplete="username" required value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} /></label>
+        <label>Password<input type="password" autoComplete="current-password" required value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} /></label>
+        <button type="submit" className="btn-primary" disabled={loginBusy}>{loginBusy ? "Signing in…" : "Sign in"}</button>
+        <p role="status">{authStatus}</p>
+      </form>
+    </main>
   );
 
   return (
@@ -395,7 +451,7 @@ export default function MaintenanceApp() {
         </div>
       </div>
 
-      {/* 1-Click Role Switcher Banner */}
+      {/* Roles are assigned by an administrator, never selected by the client. */}
       <div className="role-switcher-banner">
         <div className="role-info">
           <span className="text-muted-foreground">Active Role:</span>
@@ -403,21 +459,9 @@ export default function MaintenanceApp() {
             {role === "reporter" ? <User className="w-3.5 h-3.5" /> : <ShieldCheck className="w-3.5 h-3.5" />}
             {role === "reporter" ? "Student / Reporter" : "Maintenance Staff"}
           </span>
-          <span style={{ fontSize: "0.82rem", color: "var(--muted-foreground)", fontFamily: "DM Mono" }}>
-            ({role === "reporter" ? "reporter1@gmail.com" : "staff1@gmail.com"})
-          </span>
+          <span>{currentEmail}</span>
         </div>
-        <div>
-          {role === "reporter" ? (
-            <button className="btn-switch-role" onClick={() => switchRole("staff")}>
-              Switch to Staff View <ArrowRight className="w-3.5 h-3.5 ml-1" />
-            </button>
-          ) : (
-            <button className="btn-switch-role" onClick={() => switchRole("reporter")}>
-              Switch to Reporter View <ArrowRight className="w-3.5 h-3.5 ml-1" />
-            </button>
-          )}
-        </div>
+        <button className="btn-switch-role" onClick={signOut}>Sign out</button>
       </div>
 
       {/* Navigation Tabs */}
@@ -864,7 +908,7 @@ export default function MaintenanceApp() {
                       </span>
                     </div>
                     <div style={{ fontSize: "0.78rem", color: "var(--muted-foreground)", fontFamily: "DM Mono" }}>
-                      Changed by: {item.changed_by.substring(0, 16)}...
+                      Changed by: {item.changed_by ? `${item.changed_by.substring(0, 16)}…` : "Partner service"}
                     </div>
                     {item.note && (
                       <div style={{ marginTop: "6px", fontStyle: "italic", color: "var(--foreground)" }}>

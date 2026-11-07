@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     name: Code Quality, Security & Automated Tests
@@ -14,26 +17,31 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: 'npm'
           cache-dependency-path: |
-            backend/package.json
-            frontend/package.json
+            backend/package-lock.json
+            frontend/package-lock.json
 
       - name: Install Backend Dependencies
         run: |
           cd backend
-          npm install
+          npm ci
 
       - name: Install Frontend Dependencies
         run: |
           cd frontend
-          npm install
+          npm ci
+
+      - name: Check repository for committed credentials
+        run: npm run check:secrets --prefix backend
 
       - name: Step 1 - TypeScript Typecheck (Backend & Frontend)
         run: |
@@ -43,9 +51,9 @@ jobs:
       - name: Step 2 - Dependency Security Audit
         run: |
           echo "Auditing backend dependencies..."
-          cd backend && npm audit --audit-level=critical || true
+          cd backend && npm audit --audit-level=high
           echo "Auditing frontend dependencies..."
-          cd ../frontend && npm audit --audit-level=critical || true
+          cd ../frontend && npm audit --audit-level=high
 
       - name: Step 3 - Run AI Golden Dataset Evaluation (Slide 37)
         run: |
@@ -56,3 +64,11 @@ jobs:
         run: |
           cd backend
           npm run test:unit
+
+      - name: Security regression tests
+        run: npm run test:security --prefix backend
+
+      - name: Production builds
+        run: |
+          npm run build --prefix backend
+          npm run build --prefix frontend

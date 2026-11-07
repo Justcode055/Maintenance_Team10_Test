@@ -14,6 +14,6 @@ The client runs at `http://localhost:3001` and sends requests to `NEXT_PUBLIC_AP
 
 The backend must be running at `http://localhost:3000` before sending requests.
 
-Set the Supabase URL and anon/publishable key in `.env.local`. The console lets you choose the `reporter1@gmail.com` or `staff1@gmail.com` test account and sign in with its password. The resulting access token is kept in memory and forwarded to the backend.
+Set the Supabase URL and anon/publishable key in `.env.local`. Sign in with your own account email and password. An administrator assigns your `app_metadata.role`; the UI cannot switch roles or sign into a shared staff account. Supabase manages the browser session and refreshes its access token, which is forwarded to the backend for verification.
 
 Paste a Supabase access token into the request form to test protected routes. The token is kept in memory by the browser and is not stored in the repository.

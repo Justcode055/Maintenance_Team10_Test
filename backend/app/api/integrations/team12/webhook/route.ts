@@ -1,61 +1,54 @@
-import { timingSafeEqual } from "node:crypto";
-import { errorResponse } from "@/lib/api";
+import { z } from "zod";
+import { errorResponse, readRequestText } from "@/lib/api";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
+import { canonicalJson, secretsMatch, verifyWebhookSignature } from "@/lib/security";
 
-function validSecret(provided: string | null): boolean {
-  const expected = process.env.TEAM10_WEBHOOK_SECRET;
-  if (!expected || !provided) return false;
-
-  const providedBuffer = Buffer.from(provided);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    providedBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(providedBuffer, expectedBuffer)
-  );
-}
+const eventSchema = z.object({
+  id: z.string().min(1).max(200).optional(),
+  type: z.string().trim().min(1).max(128),
+}).passthrough();
 
 export async function POST(request: Request) {
-  if (!validSecret(request.headers.get("x-webhook-secret"))) {
+  const secret = process.env.TEAM10_WEBHOOK_SECRET;
+  if (!secretsMatch(request.headers.get("x-webhook-secret"), secret)) {
     return errorResponse(401, "INVALID_WEBHOOK_SECRET", "Webhook secret is invalid");
   }
-
   const eventId = request.headers.get("x-event-id");
-  if (!eventId) return errorResponse(400, "MISSING_EVENT_ID", "X-Event-ID is required");
-
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return errorResponse(400, "INVALID_JSON", "Webhook body must be valid JSON");
+  if (!eventId || eventId.length > 200 || !/^[A-Za-z0-9_.:-]+$/.test(eventId)) {
+    return errorResponse(400, "INVALID_EVENT_ID", "A valid X-Event-ID is required");
   }
-
-  const supabase = createSupabaseAdminClient();
-  const { data: existing, error: lookupError } = await supabase
-    .from("partner_webhook_events")
-    .select("event_id")
-    .eq("event_id", eventId)
-    .maybeSingle();
-
-  if (lookupError) return errorResponse(500, "WEBHOOK_STORAGE_ERROR", lookupError.message);
-  if (existing) {
-    return Response.json({ received: true, duplicate: true, eventId });
+  const raw = await readRequestText(request);
+  if (raw.response) return raw.response;
+  const signature = request.headers.get("x-webhook-signature");
+  // Preserve the agreed shared-secret inbound contract; verify any supplied HMAC
+  // over the exact raw bytes, never a reserialized JSON object.
+  if (signature !== null && !verifyWebhookSignature(raw.text!, signature, secret!)) {
+    return errorResponse(401, "INVALID_SIGNATURE", "Webhook signature is invalid");
   }
-
-  const { error: insertError } = await supabase.from("partner_webhook_events").insert({
-    event_id: eventId,
-    event_type:
-      typeof payload === "object" && payload !== null && "type" in payload
-        ? String(payload.type)
-        : "unknown",
-    payload,
+  let payload: z.infer<typeof eventSchema>;
+  try { payload = eventSchema.parse(JSON.parse(raw.text!)); canonicalJson(payload); } catch {
+    return errorResponse(400, "INVALID_EVENT", "Webhook requires a valid JSON event with a type");
+  }
+  if (payload.id && payload.id !== eventId) {
+    return errorResponse(400, "EVENT_ID_MISMATCH", "Event ID must match X-Event-ID");
+  }
+  let client;
+  try { client = createSupabaseAdminClient(); } catch {
+    return errorResponse(503, "WEBHOOK_UNAVAILABLE", "Webhook storage is not configured");
+  }
+  // Insert first: the primary key serializes concurrent deliveries.
+  const { error } = await client.from("partner_webhook_events").insert({
+    event_id: eventId, event_type: payload.type, payload,
   });
-
-  if (insertError) {
-    if (insertError.code === "23505") {
-      return Response.json({ received: true, duplicate: true, eventId });
-    }
-    return errorResponse(500, "WEBHOOK_STORAGE_ERROR", insertError.message);
+  if (!error) return Response.json({ received: true, duplicate: false, eventId }, { status: 201 });
+  if (error.code !== "23505") {
+    return errorResponse(503, "WEBHOOK_STORAGE_ERROR", "Webhook storage is temporarily unavailable");
   }
-
-  return Response.json({ received: true, duplicate: false, eventId }, { status: 201 });
+  const { data: existing, error: lookupError } = await client.from("partner_webhook_events")
+    .select("payload").eq("event_id", eventId).single();
+  if (lookupError) return errorResponse(503, "WEBHOOK_STORAGE_ERROR", "Webhook storage is temporarily unavailable");
+  if (canonicalJson(existing.payload) !== canonicalJson(payload)) {
+    return errorResponse(409, "EVENT_ID_CONFLICT", "Event ID has already been used for a different payload");
+  }
+  return Response.json({ received: true, duplicate: true, eventId });
 }

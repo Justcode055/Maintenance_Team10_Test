@@ -17,8 +17,7 @@ export async function POST(request: Request) {
   try {
     const result = await classifyIssueDescription(parsed.data!);
     return Response.json({ data: result }, { status: 200 });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Classification failed";
-    return errorResponse(500, "CLASSIFIER_ERROR", message);
+  } catch {
+    return errorResponse(500, "CLASSIFIER_ERROR", "Classification failed");
   }
 }

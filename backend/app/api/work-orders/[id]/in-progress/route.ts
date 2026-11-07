@@ -3,6 +3,8 @@ import { supabaseErrorResponse } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import { dispatchStatusChangedWithoutBlocking } from "@/lib/team12-integration";
 
+export const maxDuration = 60;
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, context: RouteContext) {

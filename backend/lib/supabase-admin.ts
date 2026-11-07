@@ -2,11 +2,12 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 import { supabaseEnv } from "@/lib/env";
+import { isConfiguredSecret } from "@/lib/security";
 
 export function createSupabaseAdminClient() {
   const { url } = supabaseEnv();
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) {
+  if (!isConfiguredSecret(serviceRoleKey)) {
     throw new Error("Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY");
   }
 

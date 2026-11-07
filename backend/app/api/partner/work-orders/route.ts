@@ -1,464 +1,133 @@
 import { errorResponse, readJson, supabaseErrorResponse } from "@/lib/api";
 import { requirePartnerAuth } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { createRequestSupabaseClient } from "@/lib/supabase-server";
 import {
-  createPartnerWorkOrderSchema,
-  updatePartnerWorkOrderSchema,
-  type CreatePartnerWorkOrderInput,
-  type UpdatePartnerWorkOrderInput,
+  createPartnerWorkOrderSchema, updatePartnerWorkOrderSchema,
+  partnerLookupSchema, partnerReferenceSchema,
+  type CreatePartnerWorkOrderInput, type UpdatePartnerWorkOrderInput,
 } from "@/lib/work-order-schemas";
 
-function getSupabaseClient() {
-  try {
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (serviceKey && !serviceKey.includes("replace") && !serviceKey.includes("optional")) {
-      return createSupabaseAdminClient();
-    }
-  } catch {
-    // fallback
+function adminClient() {
+  try { return createSupabaseAdminClient(); } catch { return null; }
+}
+const unavailable = () => errorResponse(503, "PARTNER_UNAVAILABLE", "Partner database access is not configured");
+type AdminClient = NonNullable<ReturnType<typeof adminClient>>;
+
+async function resolveReferences(client: AdminClient, input: CreatePartnerWorkOrderInput | UpdatePartnerWorkOrderInput, defaults: boolean) {
+  let categoryId = input.category_id;
+  let locationId = input.location_id;
+  let categoryName: string | undefined;
+  if (defaults || input.category || categoryId) {
+    const { data, error } = await client.from("categories").select("id, name").order("name");
+    if (error) return { response: supabaseErrorResponse(error) };
+    // Preserve the creation contract's best-effort text hints. Explicit UUIDs
+    // must resolve exactly; an unrecognized hint may use the configured default.
+    const category = categoryId ? data?.find((item) => item.id === categoryId)
+      : input.category ? data?.find((item) => item.name.toLowerCase() === input.category!.toLowerCase()) ?? (defaults ? data?.[0] : undefined)
+      : data?.[0];
+    if (!category) return { response: errorResponse(400, "INVALID_CATEGORY", "Select an existing category") };
+    categoryId = category.id;
+    categoryName = category.name;
   }
-  return createRequestSupabaseClient(null);
+  if (defaults || input.location || locationId) {
+    const { data, error } = await client.from("locations").select("id, building, floor_room").order("building");
+    if (error) return { response: supabaseErrorResponse(error) };
+    const location = locationId ? data?.find((item) => item.id === locationId)
+      : input.location ? data?.find((item) => item.building.toLowerCase().includes(input.location!.toLowerCase()) || item.floor_room.toLowerCase().includes(input.location!.toLowerCase())) ?? (defaults ? data?.[0] : undefined)
+      : data?.[0];
+    if (!location) return { response: errorResponse(400, "INVALID_LOCATION", "Select an existing location") };
+    locationId = location.id;
+  }
+  return { categoryId, locationId, categoryName };
+}
+
+function lookup(request: Request) {
+  const url = new URL(request.url);
+  return partnerLookupSchema.safeParse({
+    activity_id: url.searchParams.get("activity_id") ?? undefined,
+    work_order_id: url.searchParams.get("work_order_id") ?? url.searchParams.get("id") ?? undefined,
+  });
 }
 
 export async function POST(request: Request) {
   const authError = requirePartnerAuth(request);
   if (authError) return authError;
-
-  const parsed = await readJson<CreatePartnerWorkOrderInput>(request, createPartnerWorkOrderSchema);
+  const parsed = await readJson(request, createPartnerWorkOrderSchema);
   if (parsed.response) return parsed.response;
-
   const input = parsed.data!;
-  const supabase = getSupabaseClient();
-
-  // Extract explicit or implicit idempotency key
-  const idempotencyKey =
-    request.headers.get("x-idempotency-key") ||
-    request.headers.get("idempotency-key") ||
-    input.activity_id;
-
-  // 1. Idempotency Check: if idempotencyKey or activity_id is provided, check for existing order
-  if (idempotencyKey || input.activity_id) {
-    try {
-      let query = supabase
-        .from("work_orders")
-        .select("id, status, title, description, category_id, location_id, created_at, activity_id, idempotency_key");
-
-      if (idempotencyKey && input.activity_id && idempotencyKey !== input.activity_id) {
-        query = query.or(`idempotency_key.eq.${idempotencyKey},activity_id.eq.${input.activity_id}`);
-      } else if (idempotencyKey) {
-        query = query.or(`idempotency_key.eq.${idempotencyKey},activity_id.eq.${idempotencyKey}`);
-      } else if (input.activity_id) {
-        query = query.eq("activity_id", input.activity_id);
-      }
-
-      const { data: existing } = await query.maybeSingle();
-
-      if (existing) {
-        return Response.json(
-          {
-            success: true,
-            duplicate: true,
-            workOrderId: existing.id,
-            activityId: existing.activity_id,
-            idempotencyKey: existing.idempotency_key ?? idempotencyKey,
-            status: existing.status,
-            title: existing.title,
-            createdAt: existing.created_at,
-            message: "Work order already exists for this idempotencyKey or activityId",
-          },
-          { status: 200 },
-        );
-      }
-    } catch {
-      // In case activity_id or idempotency_key column is pending migration
-    }
+  const keys = [request.headers.get("x-idempotency-key"), request.headers.get("idempotency-key"), input.idempotency_key].filter((key): key is string => key != null);
+  if (keys.some((key) => !partnerReferenceSchema.safeParse(key).success) || new Set(keys).size > 1) {
+    return errorResponse(400, "INVALID_IDEMPOTENCY_KEY", "Idempotency keys must be valid and agree");
   }
-
-  // 2. Resolve Category ID (supports category UUID or name: Plumbing, Electrical, HVAC, Safety)
-  let categoryId = input.category_id;
-  let categoryName = "Facilities";
-
-  try {
-    const { data: categories } = await supabase.from("categories").select("id, name");
-    if (categories && categories.length > 0) {
-      if (categoryId) {
-        const found = categories.find((c) => c.id === categoryId);
-        if (found) categoryName = found.name;
-      } else if (input.category) {
-        const target = input.category.toLowerCase().trim();
-        const matched = categories.find(
-          (c) => c.name.toLowerCase() === target || c.name.toLowerCase().includes(target),
-        );
-        if (matched) {
-          categoryId = matched.id;
-          categoryName = matched.name;
-        }
-      }
-
-      if (!categoryId) {
-        categoryId = categories[0].id;
-        categoryName = categories[0].name;
-      }
-    }
-  } catch {
-    if (!categoryId) {
-      categoryId = "55555555-5555-4555-8555-555555555555";
-      categoryName = "Electrical";
-    }
-  }
-
-  // 3. Resolve Location ID
-  let locationId = input.location_id;
-  try {
-    const { data: locations } = await supabase.from("locations").select("id, building, floor_room");
-    if (locations && locations.length > 0) {
-      if (input.location) {
-        const target = input.location.toLowerCase().trim();
-        const matched = locations.find(
-          (l) =>
-            l.building.toLowerCase().includes(target) ||
-            l.floor_room.toLowerCase().includes(target),
-        );
-        if (matched) locationId = matched.id;
-      }
-
-      if (!locationId) {
-        locationId = locations[0].id;
-      }
-    }
-  } catch {
-    if (!locationId) {
-      locationId = "11111111-1111-4111-8111-111111111111";
-    }
-  }
-
-  // 4. Resolve fallback reporter identity for database foreign key constraint
-  let reporterId: string | null = null;
-  try {
-    const { data: sampleOrder } = await supabase
-      .from("work_orders")
-      .select("reporter_id")
-      .not("reporter_id", "is", null)
-      .limit(1)
-      .maybeSingle();
-
-    if (sampleOrder?.reporter_id) {
-      reporterId = sampleOrder.reporter_id;
-    }
-  } catch {
-    // Ignore if not retrievable
-  }
-
-  // 5. Insert Work Order
-  const fullDescription = input.schedule
-    ? `${input.description}\n[Event Schedule: ${input.schedule}]`
-    : input.description;
-
-  const insertData: Record<string, unknown> = {
-    title: input.title,
-    description: fullDescription,
-    category_id: categoryId,
-    location_id: locationId,
-    status: "OPEN",
-  };
-  if (reporterId) {
-    insertData.reporter_id = reporterId;
-  }
-  if (input.activity_id) {
-    insertData.activity_id = input.activity_id;
-  }
-  if (idempotencyKey) {
-    insertData.idempotency_key = idempotencyKey;
-  }
-
-  let newOrder: any = null;
-  const { data: inserted, error: insertError } = await supabase
-    .from("work_orders")
-    .insert(insertData)
-    .select()
-    .single();
-
-  if (insertError) {
-    // Fallback: If remote DB does not yet have activity_id/idempotency_key columns, retry without them
-    if (
-      (insertError.message?.includes("activity_id") || insertError.message?.includes("idempotency_key")) &&
-      input.activity_id
-    ) {
-      delete insertData.activity_id;
-      delete insertData.idempotency_key;
-      insertData.description = `${input.description}\n[Team 12 Activity: ${input.activity_id}]`;
-      const { data: retryData, error: retryError } = await supabase
-        .from("work_orders")
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (retryError) return supabaseErrorResponse(retryError);
-      newOrder = retryData;
-    } else {
-      return supabaseErrorResponse(insertError);
-    }
-  } else {
-    newOrder = inserted;
-  }
-
-  // 6. Record Status History Entry
-  try {
-    await supabase.from("status_history").insert({
-      work_order_id: newOrder.id,
-      changed_by: reporterId,
-      from_status: null,
-      to_status: "OPEN",
-      note: input.activity_id
-        ? `Created via Team 12 Partner Integration (Activity: ${input.activity_id})`
-        : "Created via Team 12 Partner Integration",
-    });
-  } catch {
-    // Non-fatal
-  }
-
-  return Response.json(
-    {
-      success: true,
-      duplicate: false,
-      workOrderId: newOrder.id,
-      activityId: input.activity_id ?? newOrder.activity_id ?? null,
-      idempotencyKey: idempotencyKey ?? null,
-      status: newOrder.status,
-      title: newOrder.title,
-      category: categoryName,
-      locationId: newOrder.location_id,
-      createdAt: newOrder.created_at,
-    },
-    { status: 201 },
-  );
+  const client = adminClient();
+  if (!client) return unavailable();
+  const refs = await resolveReferences(client, input, true);
+  if (refs.response) return refs.response;
+  const { data, error } = await client.rpc("create_partner_work_order", {
+    p_title: input.title, p_description: input.schedule ? `${input.description}\n[Event Schedule: ${input.schedule}]` : input.description,
+    p_category_id: refs.categoryId, p_location_id: refs.locationId,
+    p_activity_id: input.activity_id ?? null, p_idempotency_key: keys[0]?.trim() ?? input.activity_id ?? null,
+  });
+  if (error) return supabaseErrorResponse(error);
+  const order = data.work_order;
+  return Response.json({
+    success: true, duplicate: data.duplicate, workOrderId: order.id,
+    activityId: order.activity_id, idempotencyKey: order.idempotency_key,
+    status: order.status, title: order.title, category: refs.categoryName,
+    locationId: order.location_id, createdAt: order.created_at,
+  }, { status: data.duplicate ? 200 : 201 });
 }
 
 export async function GET(request: Request) {
   const authError = requirePartnerAuth(request);
   if (authError) return authError;
-
-  const url = new URL(request.url);
-  const activityId = url.searchParams.get("activity_id");
-  const workOrderId = url.searchParams.get("work_order_id") || url.searchParams.get("id");
-
-  if (!activityId && !workOrderId) {
-    return errorResponse(400, "MISSING_QUERY_PARAM", "Please provide ?activity_id=... or ?id=...");
-  }
-
-  const supabase = getSupabaseClient();
-  let query = supabase.from("work_orders").select("*");
-
-  if (activityId) {
-    query = query.eq("activity_id", activityId);
-  } else if (workOrderId) {
-    query = query.eq("id", workOrderId);
-  }
-
+  const parsed = lookup(request);
+  if (!parsed.success) return errorResponse(400, "MISSING_QUERY_PARAM", "Provide a valid activity_id or work_order_id");
+  const client = adminClient();
+  if (!client) return unavailable();
+  // The partner key never grants access to unrelated student work orders.
+  let query = client.from("work_orders").select("id, activity_id, status, title, description, created_at, updated_at").eq("partner_source", "team12");
+  if (parsed.data.activity_id) query = query.eq("activity_id", parsed.data.activity_id);
+  if (parsed.data.work_order_id) query = query.eq("id", parsed.data.work_order_id);
   const { data, error } = await query.maybeSingle();
   if (error) return supabaseErrorResponse(error);
   if (!data) return errorResponse(404, "NOT_FOUND", "Work order not found");
+  return Response.json({ success: true, data: {
+    workOrderId: data.id, activityId: data.activity_id, status: data.status,
+    title: data.title, description: data.description, createdAt: data.created_at, updatedAt: data.updated_at,
+  } });
+}
 
-  return Response.json({
-    success: true,
-    data: {
-      workOrderId: data.id,
-      activityId: data.activity_id ?? null,
-      status: data.status,
-      title: data.title,
-      description: data.description,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    },
+async function modify(input: UpdatePartnerWorkOrderInput) {
+  const client = adminClient();
+  if (!client) return unavailable();
+  const refs = await resolveReferences(client, input, false);
+  if (refs.response) return refs.response;
+  const { data, error } = await client.rpc("modify_partner_work_order", {
+    p_work_order_id: input.work_order_id ?? null, p_activity_id: input.activity_id ?? null,
+    p_cancel: input.action === "cancel", p_title: input.title ?? null,
+    p_description: input.description ?? null, p_category_id: refs.categoryId ?? null,
+    p_location_id: refs.locationId ?? null,
+  });
+  if (error) return supabaseErrorResponse(error);
+  return Response.json({ success: true, workOrderId: data.id, activityId: data.activity_id,
+    ...(input.action === "cancel" ? { cancelled: true, archivedAt: data.archived_at }
+      : { updated: true, title: data.title, description: data.description, locationId: data.location_id, categoryId: data.category_id, updatedAt: data.updated_at }),
   });
 }
 
 export async function PATCH(request: Request) {
   const authError = requirePartnerAuth(request);
   if (authError) return authError;
-
-  const parsed = await readJson<UpdatePartnerWorkOrderInput>(request, updatePartnerWorkOrderSchema);
+  const parsed = await readJson(request, updatePartnerWorkOrderSchema);
   if (parsed.response) return parsed.response;
-
-  const input = parsed.data!;
-  const supabase = getSupabaseClient();
-
-  // Find existing active work order
-  let query = supabase.from("work_orders").select("*").is("archived_at", null);
-  if (input.work_order_id) {
-    query = query.eq("id", input.work_order_id);
-  } else if (input.activity_id) {
-    query = query.eq("activity_id", input.activity_id);
-  }
-
-  const { data: existing, error: findError } = await query.maybeSingle();
-  if (findError) return supabaseErrorResponse(findError);
-  if (!existing) {
-    return errorResponse(404, "NOT_FOUND", "Active work order not found for this activity or ID");
-  }
-
-  // Handle Cancellation
-  if (input.action === "cancel") {
-    const now = new Date().toISOString();
-    const { error: cancelError } = await supabase
-      .from("work_orders")
-      .update({ archived_at: now })
-      .eq("id", existing.id);
-
-    if (cancelError) return supabaseErrorResponse(cancelError);
-
-    try {
-      await supabase.from("status_history").insert({
-        work_order_id: existing.id,
-        changed_by: existing.reporter_id,
-        from_status: existing.status,
-        to_status: existing.status,
-        note: input.activity_id
-          ? `Cancelled by Team 12 Partner (Activity: ${input.activity_id})`
-          : "Cancelled by Team 12 Partner",
-      });
-    } catch {
-      // Non-fatal
-    }
-
-    return Response.json({
-      success: true,
-      cancelled: true,
-      workOrderId: existing.id,
-      activityId: existing.activity_id,
-      archivedAt: now,
-      message: "Work order successfully cancelled and archived",
-    });
-  }
-
-  // Handle Modification (Rescheduling, Notes, Venue change)
-  const updatePayload: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  };
-
-  if (input.title) updatePayload.title = input.title;
-  if (input.description) updatePayload.description = input.description;
-
-  // Resolve Category if changed
-  if (input.category_id) {
-    updatePayload.category_id = input.category_id;
-  } else if (input.category) {
-    const { data: categories } = await supabase.from("categories").select("id, name");
-    if (categories) {
-      const target = input.category.toLowerCase().trim();
-      const matched = categories.find(
-        (c) => c.name.toLowerCase() === target || c.name.toLowerCase().includes(target),
-      );
-      if (matched) updatePayload.category_id = matched.id;
-    }
-  }
-
-  // Resolve Location (Venue change) if changed
-  if (input.location_id) {
-    updatePayload.location_id = input.location_id;
-  } else if (input.location) {
-    const { data: locations } = await supabase.from("locations").select("id, building, floor_room");
-    if (locations) {
-      const target = input.location.toLowerCase().trim();
-      const matched = locations.find(
-        (l) =>
-          l.building.toLowerCase().includes(target) ||
-          l.floor_room.toLowerCase().includes(target),
-      );
-      if (matched) updatePayload.location_id = matched.id;
-    }
-  }
-
-  const { data: updated, error: updateError } = await supabase
-    .from("work_orders")
-    .update(updatePayload)
-    .eq("id", existing.id)
-    .select()
-    .single();
-
-  if (updateError) return supabaseErrorResponse(updateError);
-
-  try {
-    await supabase.from("status_history").insert({
-      work_order_id: existing.id,
-      changed_by: existing.reporter_id,
-      from_status: existing.status,
-      to_status: existing.status,
-      note: "Updated by Team 12 Partner (Venue/Details modification)",
-    });
-  } catch {
-    // Non-fatal
-  }
-
-  return Response.json({
-    success: true,
-    updated: true,
-    workOrderId: updated.id,
-    activityId: updated.activity_id,
-    title: updated.title,
-    description: updated.description,
-    locationId: updated.location_id,
-    categoryId: updated.category_id,
-    updatedAt: updated.updated_at,
-  });
+  return modify(parsed.data!);
 }
 
 export async function DELETE(request: Request) {
   const authError = requirePartnerAuth(request);
   if (authError) return authError;
-
-  const url = new URL(request.url);
-  const activityId = url.searchParams.get("activity_id");
-  const workOrderId = url.searchParams.get("work_order_id") || url.searchParams.get("id");
-
-  if (!activityId && !workOrderId) {
-    return errorResponse(400, "MISSING_QUERY_PARAM", "Please provide ?activity_id=... or ?id=...");
-  }
-
-  const supabase = getSupabaseClient();
-  let query = supabase.from("work_orders").select("*").is("archived_at", null);
-
-  if (activityId) {
-    query = query.eq("activity_id", activityId);
-  } else if (workOrderId) {
-    query = query.eq("id", workOrderId);
-  }
-
-  const { data: existing, error: findError } = await query.maybeSingle();
-  if (findError) return supabaseErrorResponse(findError);
-  if (!existing) {
-    return errorResponse(404, "NOT_FOUND", "Active work order not found for this activity or ID");
-  }
-
-  const now = new Date().toISOString();
-  const { error: archiveError } = await supabase
-    .from("work_orders")
-    .update({ archived_at: now })
-    .eq("id", existing.id);
-
-  if (archiveError) return supabaseErrorResponse(archiveError);
-
-  try {
-    await supabase.from("status_history").insert({
-      work_order_id: existing.id,
-      changed_by: existing.reporter_id,
-      from_status: existing.status,
-      to_status: existing.status,
-      note: activityId
-        ? `Cancelled/Archived by Team 12 Partner (Activity: ${activityId})`
-        : "Cancelled/Archived by Team 12 Partner",
-    });
-  } catch {
-    // Non-fatal
-  }
-
-  return Response.json({
-    success: true,
-    cancelled: true,
-    workOrderId: existing.id,
-    activityId: existing.activity_id ?? null,
-    archivedAt: now,
-    message: "Work order cancelled and archived",
-  });
+  const parsed = lookup(request);
+  if (!parsed.success) return errorResponse(400, "MISSING_QUERY_PARAM", "Provide a valid activity_id or work_order_id");
+  return modify({ ...parsed.data, action: "cancel" });
 }

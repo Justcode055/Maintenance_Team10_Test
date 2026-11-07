@@ -3,6 +3,7 @@ import { errorResponse, readJson, supabaseErrorResponse } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import {
   createWorkOrderSchema,
+  listWorkOrdersQuerySchema,
   type CreateWorkOrderInput,
 } from "@/lib/work-order-schemas";
 
@@ -11,15 +12,18 @@ export async function GET(request: Request) {
   if (auth.response) return auth.response;
 
   const url = new URL(request.url);
+  const filters = listWorkOrdersQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!filters.success) return errorResponse(400, "INVALID_FILTER", "Work-order filters are invalid");
   const supabase = createRequestSupabaseClient(request.headers.get("authorization"));
   let query = supabase
     .from("work_orders")
     .select("*")
     .is("archived_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(filters.data.offset, filters.data.offset + filters.data.limit - 1);
 
-  const status = url.searchParams.get("status");
-  const locationId = url.searchParams.get("location_id");
+  const status = filters.data.status;
+  const locationId = filters.data.location_id;
   if (status) query = query.eq("status", status);
   if (locationId) query = query.eq("location_id", locationId);
 

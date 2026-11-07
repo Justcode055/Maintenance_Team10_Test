@@ -1,9 +1,9 @@
 import "server-only";
 
-import { timingSafeEqual } from "node:crypto";
 import type { User } from "@supabase/supabase-js";
 import { createRequestSupabaseClient } from "@/lib/supabase-server";
 import { errorResponse } from "@/lib/api";
+import { resolveTrustedRole, secretsMatch } from "@/lib/security";
 
 export type AuthContext = {
   user: User;
@@ -31,7 +31,7 @@ export async function requireAuth(
       };
     }
 
-    const role = resolveRole(data.user);
+    const role = resolveTrustedRole(data.user);
     if (!role || (allowedRoles && !allowedRoles.includes(role))) {
       return {
         response: errorResponse(403, "FORBIDDEN", "The user role is not allowed"),
@@ -39,32 +39,17 @@ export async function requireAuth(
     }
 
     return { context: { user: data.user, role } };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Authentication failed";
-    return { response: errorResponse(500, "AUTH_CONFIGURATION_ERROR", message) };
+  } catch {
+    return { response: errorResponse(503, "AUTH_UNAVAILABLE", "Authentication is temporarily unavailable") };
   }
 }
 
 export function requirePartnerAuth(request: Request): Response | null {
   const expected = process.env.TEAM10_PARTNER_KEY;
   const provided = request.headers.get("x-partner-key");
-  if (!expected || !provided) {
-    return errorResponse(401, "INVALID_PARTNER_KEY", "Partner key is invalid or missing");
-  }
-
-  const providedBuffer = Buffer.from(provided);
-  const expectedBuffer = Buffer.from(expected);
-  if (
-    providedBuffer.length !== expectedBuffer.length ||
-    !timingSafeEqual(providedBuffer, expectedBuffer)
-  ) {
+  if (!secretsMatch(provided, expected)) {
     return errorResponse(401, "INVALID_PARTNER_KEY", "Partner key is invalid or missing");
   }
 
   return null;
-}
-
-function resolveRole(user: User): AuthContext["role"] | null {
-  const role = user.app_metadata?.role ?? user.user_metadata?.role;
-  return role === "staff" || role === "reporter" ? role : null;
 }

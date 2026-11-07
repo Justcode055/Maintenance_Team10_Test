@@ -32,7 +32,12 @@ envContent.split("\n").forEach((line) => {
 
 const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/+$/, "");
 const SUPABASE_ANON_KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const API_BASE = "http://localhost:3000/api";
+const API_BASE = env.TEST_API_BASE_URL ?? "http://localhost:3000/api";
+function credential(name: string): string {
+  const value = process.env[name] ?? env[name];
+  if (!value) throw new Error(`Configure ${name} privately before running live tests`);
+  return value;
+}
 
 async function loginUser(email: string, password: string):Promise<{ token: string; userId: string }> {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
@@ -44,7 +49,7 @@ async function loginUser(email: string, password: string):Promise<{ token: strin
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(`Login failed for ${email}: ${JSON.stringify(data)}`);
+  if (!res.ok) throw new Error(`Supabase login failed with HTTP ${res.status}`);
   return { token: data.access_token, userId: data.user.id };
 }
 
@@ -87,7 +92,7 @@ describe("Platform Minimum 7-Test Suite (Slide 31)", () => {
   // TEST 3: Integration Test 1 — Work Order Creation & Initial State
   // -------------------------------------------------------------------------
   it("Integration Test 1: POST /api/work-orders creates row with status OPEN", async () => {
-    const reporter = await loginUser("reporter1@gmail.com", "Reporter1");
+    const reporter = await loginUser(credential("TEST_REPORTER_EMAIL"), credential("TEST_REPORTER_PASSWORD"));
     const locId = "11111111-1111-4111-8111-111111111111";
     const catId = "22222222-2222-4222-8222-222222222222";
 
@@ -116,8 +121,14 @@ describe("Platform Minimum 7-Test Suite (Slide 31)", () => {
   // TEST 4: Integration Test 2 — Chronological Status Audit Trail
   // -------------------------------------------------------------------------
   it("Integration Test 2: GET /api/work-orders/{id}/history returns immutable audit records", async () => {
-    const reporter = await loginUser("reporter1@gmail.com", "Reporter1");
-    const testId = "9f127dc9-5a1b-4556-bccb-f7efbbe91632"; // Seeded smoke test order
+    const reporter = await loginUser(credential("TEST_REPORTER_EMAIL"), credential("TEST_REPORTER_PASSWORD"));
+    const created = await fetch(`${API_BASE}/work-orders`, {
+      method: "POST", headers: { Authorization: `Bearer ${reporter.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Isolated history integration test", description: "Verify the initial audit record",
+        location_id: "11111111-1111-4111-8111-111111111111", category_id: "22222222-2222-4222-8222-222222222222" }),
+    });
+    assert.equal(created.status, 201);
+    const testId = (await created.json()).id;
 
     const res = await fetch(`${API_BASE}/work-orders/${testId}/history`, {
       headers: { Authorization: `Bearer ${reporter.token}` },
@@ -139,7 +150,7 @@ describe("Platform Minimum 7-Test Suite (Slide 31)", () => {
   // TEST 5: Authz Test — RBAC Permission Boundary
   // -------------------------------------------------------------------------
   it("Authz Test: rejects reporter from executing staff-only /resolve endpoint with HTTP 403", async () => {
-    const reporter = await loginUser("reporter1@gmail.com", "Reporter1");
+    const reporter = await loginUser(credential("TEST_REPORTER_EMAIL"), credential("TEST_REPORTER_PASSWORD"));
     const testId = "9f127dc9-5a1b-4556-bccb-f7efbbe91632";
 
     const res = await fetch(`${API_BASE}/work-orders/${testId}/resolve`, {
@@ -160,8 +171,8 @@ describe("Platform Minimum 7-Test Suite (Slide 31)", () => {
   // TEST 6: E2E Test — Complete 5-Stage Work-Order Lifecycle
   // -------------------------------------------------------------------------
   it("E2E Test: walks work order through complete 5-stage lifecycle to CLOSED", async () => {
-    const reporter = await loginUser("reporter1@gmail.com", "Reporter1");
-    const staff = await loginUser("staff1@gmail.com", "Staff1");
+    const reporter = await loginUser(credential("TEST_REPORTER_EMAIL"), credential("TEST_REPORTER_PASSWORD"));
+    const staff = await loginUser(credential("TEST_STAFF_EMAIL"), credential("TEST_STAFF_PASSWORD"));
     const locId = "11111111-1111-4111-8111-111111111111";
     const catId = "22222222-2222-4222-8222-222222222222";
 

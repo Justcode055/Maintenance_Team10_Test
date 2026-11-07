@@ -1,1 +1,1 @@
-export { POST } from "../in-progress/route";
+export { POST, maxDuration } from "../in-progress/route";

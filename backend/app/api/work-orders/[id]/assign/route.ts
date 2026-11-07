@@ -1,11 +1,13 @@
 import { createRequestSupabaseClient } from "@/lib/supabase-server";
-import { errorResponse, supabaseErrorResponse } from "@/lib/api";
+import { errorResponse, readRequestText, supabaseErrorResponse } from "@/lib/api";
 import { requireAuth } from "@/lib/auth";
 import {
   assignWorkOrderSchema,
   type AssignWorkOrderInput,
 } from "@/lib/work-order-schemas";
 import { dispatchStatusChangedWithoutBlocking } from "@/lib/team12-integration";
+
+export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -15,7 +17,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   let staffId = auth.context?.user.id;
 
-  const text = await request.text();
+  const raw = await readRequestText(request);
+  if (raw.response) return raw.response;
+  const text = raw.text ?? "";
   if (text.trim().length > 0) {
     try {
       const body = JSON.parse(text);

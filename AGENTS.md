@@ -32,9 +32,9 @@ Welcome to the **Campus Facility Maintenance Platform (Team 10)** repository. Th
 ```
 
 ### Core Technologies
-- **Runtime:** Node.js **22 LTS or later** (Mandatory for native TypeScript `--experimental-strip-types` support in the test runner)
-- **Backend:** Next.js 15.5 App Router, TypeScript 5.9, Zod 4.1.5, `@supabase/supabase-js` 2.57.0
-- **Frontend:** Next.js 15.5, React 19.1, Tailwind CSS 3.4.19, Lucide React 1.63, Base UI / Shadcn
+- **Runtime:** Node.js **22.15 LTS or later** (Mandatory for native TypeScript `--experimental-strip-types` support in the test runner)
+- **Backend:** Next.js 15.5.29 App Router, TypeScript 5.9, Zod 4.6.7, `@supabase/supabase-js` 2.57.0
+- **Frontend:** Next.js 15.5.29, React 19.3.1, Tailwind CSS 3.4.19, Lucide React 1.63, Base UI / Shadcn
 - **Database & Auth:** Hosted Supabase PostgreSQL with Row Level Security (RLS), custom triggers, atomic stored procedures, and JWT role-based claims.
 - **Testing:** Node.js native test runner (`node:test`, `node:assert/strict`) — zero heavy third-party testing dependencies.
 
@@ -42,7 +42,7 @@ Welcome to the **Campus Facility Maintenance Platform (Team 10)** repository. Th
 
 ## 3. Implemented Features & Architecture Inventory
 
-Everything below is **already implemented and operational** in the repository.
+The capabilities below are implemented in the repository. Deployment requires all pending database migrations and private environment configuration.
 
 ### 3.1 Work-Order 5-Stage Atomic Lifecycle (`lib/status.ts`, `supabase/migrations/`)
 The system strictly enforces an atomic, forward-only 5-stage lifecycle state machine:
@@ -104,12 +104,12 @@ Bidirectional integration with Campus Events & Clubs (Team 12):
   1. **Issue Reporting:** Title, description, live AI categorization button (`/api/ai/categorize`), confidence display, building hint detection, and automatic dropdown fallback.
   2. **Ticket Tracker:** List and search work orders, status filters (`ALL`, `OPEN`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`), visual 5-stage stepper, SLA countdown, and modal for the immutable chronological audit trail (`status_history`).
   3. **Staff Dispatch Board:** Role-protected technician assignment, start work, resolve with mandatory notes modal, close, and soft-delete/archive.
-- **Role Switcher & Mock/Live Auth:** One-click instant toggle between `reporter1@gmail.com` and `staff1@gmail.com` with in-memory JWT handling.
+- **Authentication:** Users sign in with their own email/password. Roles come only from administrator-controlled `app_metadata.role`. No bundled passwords, shared-account role switching or production mock tokens are allowed.
 
 ### 3.6 Automated CI Quality Gates & Testing (`.github/workflows/ci.yml`, `backend/tests/`)
 Continuous Integration pipeline running 4 automated gates in **38 seconds**:
 1. **Gate 1: TypeScript Typecheck:** Full compile check for both `backend` and `frontend`.
-2. **Gate 2: Security Dependency Audit:** `npm audit --audit-level=critical`.
+2. **Gate 2: Security Dependency Audit:** `npm audit --audit-level=high` (must fail CI on findings).
 3. **Gate 3: 10-Item AI Golden Dataset Benchmark (`golden-dataset.test.ts`):** 100% across all 5 dimensions (Correctness, Safety Defense, Enum Grounding, Schema Validity, Latency SLA <1500ms).
 4. **Gate 4: Platform Unit & Security Tests (`unit-suite.test.ts`):** 7 tests verifying state transition enforcement, HMAC generation, prompt injection defense, partner schema validation, monotonic sequence numbering, partner cancellation, and constant-time key validation.
 
@@ -313,3 +313,13 @@ When modifying or expanding this codebase, agents **MUST** uphold the following 
 7. **Timing-Safe Authentication:** Partner key comparisons and webhook secret comparisons must use `node:crypto`'s `timingSafeEqual` to eliminate timing side-channel attacks.
 8. **Node.js 22 LTS Compatibility:** Do not introduce Babel, ts-node, or heavy bundlers into the test pipeline. Tests run natively with `node --experimental-strip-types --test`. Keep tests compatible with Node 22+.
 9. **Credential Safety:** NEVER commit passwords, Supabase service-role keys, bearer tokens, or webhook secrets to source code or git history.
+
+
+## Security hardening deployment (migration 009)
+
+- Apply `backend/supabase/migrations/009_security_hardening.sql` before deploying the matching API. Partner RPCs are service-role-only, scoped to `partner_source = team12`, and atomic with trigger-written audit history.
+- Administrators must verify identities and set `app_metadata.role` for legitimate users. Never derive authorization from `user_metadata`, or promote users based on untrusted metadata/email alone.
+- History updates/deletes and hard work-order deletes are rejected by database triggers. Authenticated clients cannot write history directly; direct work-order mutations still run the atomic audit trigger.
+- New partner correlation keys have unique indexes and transaction-level locking. Investigate existing duplicates before migration instead of deleting audit records or silently relinking them.
+- Run `test:security` in addition to the original unit and AI suites. Its native route-loader tests require Node 22.15+. Optional isolated database tests do not add dependencies to the normal test pipeline.
+- Private `.env.*` files are ignored; only `.env.example` templates may be tracked. Rotate previously exposed demo credentials; removal from the current source does not remove Git history.
